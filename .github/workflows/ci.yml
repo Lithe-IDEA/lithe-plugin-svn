@@ -1,0 +1,54 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Subversion
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends subversion
+          svn --version --quiet
+      - name: Read pinned host revision
+        id: core
+        run: node -e 'const s=require("./sdk.lock.json").source; console.log(`repository=${new URL(s.repository).pathname.slice(1)}\nrevision=${s.revision}`)' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.core.outputs.repository }}
+          ref: ${{ steps.core.outputs.revision }}
+          path: .artifacts/lithe-core
+          sparse-checkout: |
+            rust
+            shared
+          persist-credentials: false
+      - name: Build test-only bridge to the pinned Core
+        run: node scripts/prepare-core.mjs
+      - name: Verify SDK and run offline integration
+        env:
+          LITHE_SVN_INTEGRATION: '1'
+        run: |
+          mkdir -p .artifacts
+          node scripts/verify-sdk.mjs
+          node scripts/test.mjs
+      - name: Assemble package
+        run: node scripts/package.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: svn-plugin
+          path: |
+            .artifacts/test-stability/
+            .artifacts/core-target/build.log
+            dist/*.zip
+            dist/*.sha256
+          retention-days: 7

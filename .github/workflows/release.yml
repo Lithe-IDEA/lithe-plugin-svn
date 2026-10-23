@@ -1,0 +1,88 @@
+name: Release preview
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify or publish
+        required: true
+        type: string
+permissions:
+  contents: write
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Subversion
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends subversion
+      - name: Read pinned host revision
+        id: core
+        if: hashFiles('scripts/prepare-core.mjs') != ''
+        run: node -e 'const s=require("./sdk.lock.json").source; console.log(`repository=${new URL(s.repository).pathname.slice(1)}\nrevision=${s.revision}`)' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.core.outputs.revision != ''
+        with:
+          repository: ${{ steps.core.outputs.repository }}
+          ref: ${{ steps.core.outputs.revision }}
+          path: .artifacts/lithe-core
+          sparse-checkout: |
+            rust
+            shared
+          persist-credentials: false
+      - name: Build test-only bridge to the pinned Core
+        if: steps.core.outputs.revision != ''
+        run: node scripts/prepare-core.mjs
+      - name: Verify, test and package
+        env:
+          LITHE_SVN_INTEGRATION: '1'
+        run: |
+          node scripts/verify-sdk.mjs
+          if [ -f scripts/test.mjs ]; then
+            node scripts/test.mjs
+          else
+            # Historical tags retain their own test procedure.
+            node --test test/*.test.mjs
+          fi
+          node scripts/package.mjs --expect-tag "$RELEASE_TAG"
+      - name: Publish immutable preview assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A maintainer may have uploaded an immutable release before this
+          # tag run starts. Verify the published bytes without replacing them.
+          if gh release view "$RELEASE_TAG" --json url > "$RUNNER_TEMP/existing-release.json"; then
+            archive="svn-support-${RELEASE_TAG#v}-darwin.zip"
+            mkdir -p "$RUNNER_TEMP/published"
+            gh release download "$RELEASE_TAG" --pattern "$archive" --pattern "$archive.sha256" --dir "$RUNNER_TEMP/published"
+            (cd "$RUNNER_TEMP/published" && sha256sum --check "$archive.sha256")
+            echo "Existing release verified; its assets remain unchanged."
+            exit 0
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          macOS Subversion provider for a Lithe preview whose host declares API 3 vcsProviders 1 and serverProcess 1.
+
+          Shows and commits the changes of Subversion working copies in Lithe's version control tool window: status, base diff, history, annotate, check-in, rollback, update, conflict resolution, and moves through svn. Requires Subversion 1.8+ and Node.js 20.3+, both user-provided.
+
+          Preview status: automated Core integration and svn scenario checks pass; native installation and full UI acceptance are pending. Windows is not supported. Published ZIP bytes must not be replaced.
+          NOTES
+          gh release create "$RELEASE_TAG" dist/*.zip dist/*.sha256 --verify-tag --prerelease --title "Subversion $RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.md"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-tests
+          path: |
+            .artifacts/test-stability/
+            .artifacts/core-target/build.log
+          retention-days: 7

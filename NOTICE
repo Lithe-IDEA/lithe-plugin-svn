@@ -1,0 +1,11 @@
+Subversion plugin for Lithe
+Copyright 2026 Lithe contributors
+
+This project includes the Apache-2.0 licensed Lithe Node plugin SDK and
+test support from 1lck/Lithe-IDEA. Exact upstream paths, Git revision
+and SHA-256 hashes are recorded in sdk.lock.json. The SDK's runtime
+modules are copied into the plugin at build time; test support is never
+shipped in the package.
+
+Apache Subversion and Node.js are user-provided tools and are not
+redistributed.

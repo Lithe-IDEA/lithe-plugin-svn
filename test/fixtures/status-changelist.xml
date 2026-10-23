@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<status>
+<target
+   path=".">
+<entry
+   path="a@b.txt">
+<wc-status
+   item="modified"
+   revision="12"
+   props="none">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-23T09:18:18.157636Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="added.txt">
+<wc-status
+   item="added"
+   revision="-1"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="after.txt">
+<wc-status
+   moved-to="moved.txt"
+   item="deleted"
+   revision="12"
+   props="none">
+<commit
+   revision="4">
+<author>alice</author>
+<date>2026-10-23T09:18:22.114898Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="copied.txt">
+<wc-status
+   item="added"
+   props="none"
+   copied="true">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-23T09:18:18.157636Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="copy-of-template.txt">
+<wc-status
+   props="none"
+   item="deleted"
+   revision="12">
+<commit
+   revision="4">
+<author>alice</author>
+<date>2026-10-23T09:18:22.114898Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="docs/readme.txt">
+<wc-status
+   tree-conflicted="true"
+   item="added"
+   props="none"
+   copied="true">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-23T09:18:18.157636Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="lib">
+<wc-status
+   switched="true"
+   item="normal"
+   revision="12"
+   props="none">
+<commit
+   revision="7">
+<author>alice</author>
+<date>2026-10-23T09:18:25.086777Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="locked.txt">
+<wc-status
+   item="normal"
+   revision="12"
+   props="none">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-23T09:18:18.157636Z</date>
+</commit>
+<lock>
+<token>opaquelocktoken:c5aeeedb-e64d-45e6-803e-c8d93afc06eb</token>
+<owner>alice</owner>
+<created>2026-10-23T09:18:35.125973Z</created>
+</lock>
+</wc-status>
+</entry>
+<entry
+   path="lost.txt">
+<wc-status
+   props="none"
+   item="missing"
+   revision="12">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-23T09:18:18.157636Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="moved.txt">
+<wc-status
+   item="added"
+   props="none"
+   copied="true"
+   moved-from="after.txt">
+<commit
+   revision="4">
+<author>alice</author>
+<date>2026-10-23T09:18:22.114898Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="replaced.txt">
+<wc-status
+   item="replaced"
+   revision="12"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="src/util.c">
+<wc-status
+   item="conflicted"
+   revision="12"
+   props="none">
+<commit
+   revision="11">
+<author>bob</author>
+<date>2026-10-23T09:18:30.086860Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="src/util.c.mine">
+<wc-status
+   item="unversioned"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="src/util.c.r10">
+<wc-status
+   item="unversioned"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="src/util.c.r12">
+<wc-status
+   item="unversioned"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="unversioned.txt">
+<wc-status
+   item="unversioned"
+   props="none">
+</wc-status>
+</entry>
+<entry
+   path="vendor-docs">
+<wc-status
+   props="none"
+   item="external">
+</wc-status>
+</entry>
+<entry
+   path="ünïcödé.txt">
+<wc-status
+   props="none"
+   item="modified"
+   revision="12">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-23T09:18:18.157636Z</date>
+</commit>
+</wc-status>
+</entry>
+</target>
+<changelist
+   name="review">
+<entry
+   path="src/main.c">
+<wc-status
+   props="none"
+   item="modified"
+   revision="12">
+<commit
+   revision="3">
+<author>bob</author>
+<date>2026-10-23T09:18:19.087432Z</date>
+</commit>
+</wc-status>
+</entry>
+<entry
+   path="with space.txt">
+<wc-status
+   item="normal"
+   revision="12"
+   props="modified">
+<commit
+   revision="2">
+<author>alice</author>
+<date>2026-10-23T09:18:18.157636Z</date>
+</commit>
+</wc-status>
+</entry>
+</changelist>
+</status>

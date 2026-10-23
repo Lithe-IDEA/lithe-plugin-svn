@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "id": "io.github.lithe-idea.svn-support",
+  "displayName": "Subversion",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": { "serverProcess": 1, "vcsProviders": 1 },
+  "vendor": { "id": "io.github.lithe-idea", "displayName": "Lithe Community", "signatureRequirement": "none" },
+  "permissions": ["languageServer.launch", "process.vcs"],
+  "activationEvents": ["onVcsRoot:svn"],
+  "languages": [],
+  "vcsProviders": [
+    {
+      "id": "svn",
+      "displayName": "Subversion",
+      "detection": {
+        "markers": [{ "name": ".svn", "type": "directory" }]
+      },
+      "metadataPaths": [".svn/wc.db"],
+      "tool": {
+        "commands": ["svn"],
+        "validationArguments": ["--version", "--quiet"]
+      },
+      "launch": {
+        "kind": "runtime",
+        "tool": "node",
+        "minimumVersion": "20.3",
+        "entry": "provider/svn-provider.mjs"
+      },
+      "arguments": ["--stdio"],
+      "mayUseNetwork": true
+    }
+  ]
+}

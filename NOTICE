@@ -9,3 +9,11 @@ shipped in the package.
 
 Apache Subversion and Node.js are user-provided tools and are not
 redistributed.
+
+The Lithe Store listing icon in assets/ comes from the JetBrains
+IntelliJ Platform Community repository, licensed under the Apache License,
+Version 2.0, at revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade:
+
+  subversion.svg   platform/icons/src/expui/general/vcs.svg
+
+It is a generic version control icon, not the Apache Subversion logo.

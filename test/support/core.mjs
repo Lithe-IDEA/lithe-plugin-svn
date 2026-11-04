@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import { repository, verifySdk } from '../../scripts/verify-sdk.mjs';
+import { verifyPreparedCore as verifyCoreIdentity } from '../../scripts/core-source.mjs';
 
 export const integration = process.env.LITHE_SVN_INTEGRATION === '1';
 export const integrationSkip = integration ? false : 'Prepare Core and set LITHE_SVN_INTEGRATION=1 for integration tests.';
-const binary = join(repository, '.artifacts/core-target/debug/examples/svn-plugin-harness');
+const binary = join(repository, '.artifacts/core-target/svn-plugin-harness');
 /** Bound for one Core request; event waits ask Core for at most a second. */
 const REQUEST_TIMEOUT = 10_000;
 /** Bound for waiting on one provider event. */
@@ -18,12 +17,7 @@ export const EVENT_TIMEOUT = 20_000;
 let verified;
 async function verifyPreparedCore() {
   await verifySdk();
-  const lock = JSON.parse(await readFile(join(repository, 'sdk.lock.json'), 'utf8'));
-  const prepared = JSON.parse(await readFile(join(repository, '.artifacts/core-target/prepared.json'), 'utf8'));
-  const digest = async (path) => createHash('sha256').update(await readFile(path)).digest('hex');
-  assert.equal(prepared.revision, lock.source.revision, 'Run node scripts/prepare-core.mjs after updating the SDK.');
-  assert.equal(prepared.harnessSha256, await digest(join(repository, 'test/core-harness.rs')));
-  assert.equal(prepared.binarySha256, await digest(binary), 'Core bridge changed after preparation.');
+  await verifyCoreIdentity(binary, join(repository, 'test/core-harness.rs'));
 }
 
 /**
@@ -87,6 +81,8 @@ export class Core {
     const started = await this.call('lsp.startServer', {
       providerId,
       pluginId,
+      role: 'vcs',
+      logSubject: 'svn',
       executablePath: executable,
       arguments: args,
       environment,

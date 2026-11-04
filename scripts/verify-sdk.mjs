@@ -8,13 +8,15 @@ export const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** Verify vendored upstream inputs before testing or assembling a release. */
 export async function verifySdk(root = repository) {
   const lock = JSON.parse(await readFile(join(root, 'sdk.lock.json'), 'utf8'));
-  if (lock.schemaVersion !== 1 || !/^[0-9a-f]{40}$/.test(lock.source?.revision) || !Array.isArray(lock.files)) {
+  if (lock.schemaVersion !== 1 || !/^[0-9a-f]{40}$/.test(lock.source?.revision) || !Array.isArray(lock.files) || !/^[0-9a-f]{40}$/.test(lock.sdkSource?.revision) || lock.sdkSource?.repository !== 'https://github.com/Lithe-IDEA/lithe-plugin-docs') {
     throw new Error('sdk.lock.json must pin an exact upstream Git revision and file hashes.');
   }
   const expected = new Set();
   for (const entry of lock.files) {
     if (!entry.path?.startsWith('vendor/') || isAbsolute(entry.path) || entry.path.split('/').some(part => !part || part === '.' || part === '..')
-      || entry.path.includes('\\') || !/^[0-9a-f]{64}$/.test(entry.sha256) || expected.has(entry.path)) {
+      || entry.path.includes('\\') || !/^[0-9a-f]{64}$/.test(entry.sha256) || expected.has(entry.path)
+      || (entry.path.startsWith('vendor/lithe-plugin-sdk/src/') && entry.source !== 'sdkSource')
+      || (entry.localChanges === true && (!Object.hasOwn(entry, 'upstreamSha256') || (entry.upstreamSha256 !== null && !/^[0-9a-f]{64}$/.test(entry.upstreamSha256))))) {
       throw new Error('Invalid or duplicate SDK lock entry.');
     }
     expected.add(entry.path);

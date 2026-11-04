@@ -27,10 +27,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends subversion
-      - name: Read pinned host revision
+      - name: Resolve latest host preview with structured logging
         id: core
         if: hashFiles('scripts/prepare-core.mjs') != ''
-        run: node -e 'const s=require("./sdk.lock.json").source; console.log(`repository=${new URL(s.repository).pathname.slice(1)}\nrevision=${s.revision}`)' >> "$GITHUB_OUTPUT"
+        run: node -e 'const s=require("./sdk.lock.json").coreSource; console.log(`repository=${new URL(s.repository).pathname.slice(1)}\nrevision=${s.ref}`)' >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         if: steps.core.outputs.revision != ''
         with:
@@ -41,7 +41,7 @@ jobs:
             rust
             shared
           persist-credentials: false
-      - name: Build test-only bridge to the pinned Core
+      - name: Verify host prerequisite and build Core bridge
         if: steps.core.outputs.revision != ''
         run: node scripts/prepare-core.mjs
       - name: Verify, test and package

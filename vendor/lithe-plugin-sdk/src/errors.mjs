@@ -1,4 +1,4 @@
-import { boundedText, ERROR_CODES, isPluginErrorCode } from './protocol.mjs';
+import { boundedText, ERROR_CODES, HOST_ERRORS, isPluginErrorCode } from './protocol.mjs';
 
 /**
  * A failure a handler reports on purpose. Core ends the call with the stable
@@ -9,7 +9,7 @@ export class PluginError extends Error {
   /**
    * @param {string} code Identifier of at most 64 bytes, such as `maven.snapshotLocked`.
    * @param {string} message User-facing text; Core keeps the first 1024 bytes.
-   * @param {object} [options] `{ cause }`, kept for logs only.
+   * @param {object} [options] `{ cause }`, retained in memory and omitted from automatic diagnostics.
    */
   constructor(code, message, options) {
     super(message, options);
@@ -29,6 +29,47 @@ export class PluginSdkError extends Error {
     super(message);
     this.name = 'PluginSdkError';
     this.code = code;
+  }
+}
+
+const HOST_CODES = new Map(Object.entries(HOST_ERRORS).map(([code, rpcCode]) => [rpcCode, code]));
+
+/**
+ * The host refused or failed a request this backend sent. `code` is the
+ * stable `error.data.code`, such as `plugin.host.contextExpired`; `rpcCode`
+ * the JSON-RPC number; `details` the object a version 3 host may add, such
+ * as `{ option }` or `{ retryAfterMilliseconds }`.
+ */
+export class HostError extends PluginSdkError {
+  constructor(code, message, { rpcCode, details, method } = {}) {
+    super(code, message);
+    this.name = 'HostError';
+    this.rpcCode = rpcCode;
+    this.details = details;
+    this.method = method;
+  }
+
+  /**
+   * The failure for a JSON-RPC error answer. A host method without a known
+   * code is a host failure: from version 3 a number names one code, and an
+   * unknown number is `plugin.host.failed`.
+   */
+  static fromResponse(method, error) {
+    const data = error?.data;
+    const isHost = method.startsWith('lithe/host/');
+    const code = typeof data?.code === 'string'
+      ? data.code
+      : isHost
+        ? HOST_CODES.get(error?.code) ?? 'plugin.host.failed'
+        : 'sdk.host.error';
+    const details = data?.details !== null && typeof data?.details === 'object' && !Array.isArray(data.details)
+      ? data.details
+      : undefined;
+    return new HostError(code, typeof error?.message === 'string' ? error.message : `${method} failed.`, {
+      rpcCode: error?.code,
+      details,
+      method,
+    });
   }
 }
 
@@ -55,6 +96,6 @@ export function toResponseError(error, signal) {
     };
   }
   // Unexpected exceptions often embed absolute paths (ENOENT) or internals;
-  // the caller logs the details to stderr instead.
+  // the caller logs only a fixed failure category to stderr.
   return { code: ERROR_CODES.internalError, message: 'The plugin backend failed unexpectedly.' };
 }

@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import { identifyCore } from '../scripts/core-source.mjs';
+
+test('Core identity enforces origin/ref and explicit dirty-source consent', { timeout: 10000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'lithe-core-identity-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { timeout: 2000, stdio: ['ignore', 'pipe', 'pipe'] });
+  git('init', '-q');
+  git('remote', 'add', 'origin', 'https://example.invalid/core.git');
+  await mkdir(join(root, 'shared/logging/events'), { recursive: true });
+  await writeFile(join(root, 'shared/logging/events/plugins.json'), JSON.stringify({ events: [{ id: 'plugins.operation.finished' }] }));
+  git('add', '.');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture');
+  const clean = await identifyCore(root, 'HEAD', false, 'https://example.invalid/core');
+  assert.equal(clean.dirty, false);
+  await assert.rejects(identifyCore(root, 'HEAD', false, 'https://example.invalid/other'), /origin/);
+  await writeFile(join(root, 'shared/new-input.json'), '{}');
+  await assert.rejects(identifyCore(root, 'HEAD', false, 'https://example.invalid/core'), /dirty/);
+  const dirty = await identifyCore(root, 'HEAD', true, 'https://example.invalid/core');
+  assert.equal(dirty.dirty, true);
+  assert.notEqual(dirty.sourceSha256, clean.sourceSha256);
+  await writeFile(join(root, 'shared/new-input.json'), '{"changed":true}');
+  const changed = await identifyCore(root, 'HEAD', true, 'https://example.invalid/core');
+  assert.notEqual(changed.sourceSha256, dirty.sourceSha256);
+  await writeFile(join(root, 'shared/logging/events/plugins.json'), '{"events":[]}');
+  await assert.rejects(identifyCore(root, 'HEAD', true, 'https://example.invalid/core'), /litheLogging/);
+});

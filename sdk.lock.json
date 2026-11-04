@@ -12,53 +12,96 @@
     },
     {
       "upstream": "sdk/node/src/backend.mjs",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/backend.mjs",
-      "sha256": "059ca66fb9ece74cbdd63f03cc61911a086e93d52127be67ac782cf125bf8e6a"
+      "sha256": "bc31d80064c9dc72e850e5b4f5ea739068da343c0628562088fa00d866e3e807",
+      "localChanges": true,
+      "upstreamSha256": "a69780df4b6fba6c9535d56a9647aaf1b39faa866bf95cc8e52377ef619ef108"
+    },
+    {
+      "upstream": "sdk/node/src/diagnostics.mjs",
+      "source": "sdkSource",
+      "path": "vendor/lithe-plugin-sdk/src/diagnostics.mjs",
+      "sha256": "2ecac45d5f5dadcc0b9ea47a5fb6e1f148a4df48eac31a46b580c5c0fd8ac619",
+      "localChanges": true,
+      "upstreamSha256": null
     },
     {
       "upstream": "sdk/node/src/errors.mjs",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/errors.mjs",
-      "sha256": "92190d518602beb944305c2b15011d7abca0d44058fd92afe0663f6ea05d749b"
+      "sha256": "e756aa0a88f1807ffdc985f3aed307f283c2a59902a287e22dd408dae5179bd2",
+      "localChanges": true,
+      "upstreamSha256": "785cfe4f63e42e82285860050c9251b96a6c8cddcb36579292178b8d21289e47"
     },
     {
       "upstream": "sdk/node/src/framing.mjs",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/framing.mjs",
       "sha256": "ec745be1ecf4cf24d521c5aa3108da2bbbfb9156f2197fcb5158de1f1bc9cfd1"
     },
     {
+      "upstream": "sdk/node/src/host.mjs",
+      "source": "sdkSource",
+      "path": "vendor/lithe-plugin-sdk/src/host.mjs",
+      "sha256": "5fbb3a03292fe72bb6b8c7169cecdf0263008526a1252e46e9f0afe98610e4ec",
+      "localChanges": true,
+      "upstreamSha256": "0bdf879d7ac97a04981798842a5d87ba1e11776c5abd08f88082ee25038dbef0"
+    },
+    {
       "upstream": "sdk/node/src/index.d.ts",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/index.d.ts",
-      "sha256": "293d3e3b1680078e1e2ab344a2100d39e2517caef6f67d17f7410d645daa57e3"
+      "sha256": "e6ec8c1467f695330214efafe7a670dae2f843e61266868a348a0673ea4137be",
+      "localChanges": true,
+      "upstreamSha256": "560d2691da3a6f859e992a092e0b2d4cc921f16c53b10a0246e620bc10070a1b"
     },
     {
       "upstream": "sdk/node/src/index.mjs",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/index.mjs",
-      "sha256": "37f1131fa08fbd5126e4becfa4b54118504be408c0a2f124a9b99c258be7be1a"
+      "sha256": "79042db2ac6e0ac896ff0a1643ee540217b7b84fab4d1b1b82ad4246263d16af"
     },
     {
       "upstream": "sdk/node/src/process.mjs",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/process.mjs",
       "sha256": "a72f78cbfbb8d98b2d44ebea7f869038a3e34ebe7ee000f63cdd36fb2aaece66"
     },
     {
       "upstream": "sdk/node/src/protocol.mjs",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/protocol.mjs",
-      "sha256": "422ac31873bcf7d92e27ca4534ba160551bf8b9f749e102f05d48e8b9b079cfc"
+      "sha256": "31de386e386e8ec276657f151f62b2d0e7a4ae70700072eefeac624a6cde70a6"
     },
     {
       "upstream": "sdk/node/src/state.mjs",
+      "source": "sdkSource",
       "path": "vendor/lithe-plugin-sdk/src/state.mjs",
       "sha256": "946618214fbcb736c76ee85c87e0b969fe853fbab215f7c192990f2edf2035a4"
-    },
-    {
-      "upstream": ".agents/skills/write-stable-tests/scripts/test-timing-lib.mjs",
-      "path": "vendor/lithe-testing/test-timing-lib.mjs",
-      "sha256": "6475279234c07cb8d420e03dbfc5e87aa64fd1703c872798684ee56cd2bc3425"
     },
     {
       "upstream": ".agents/skills/write-stable-tests/scripts/generate-test-report.mjs",
       "path": "vendor/lithe-testing/generate-test-report.mjs",
       "sha256": "ef4170b6380077d48dcf11a54faa423c2071291b2202a7f89df86d4b93853824"
+    },
+    {
+      "upstream": ".agents/skills/write-stable-tests/scripts/test-timing-lib.mjs",
+      "path": "vendor/lithe-testing/test-timing-lib.mjs",
+      "sha256": "6475279234c07cb8d420e03dbfc5e87aa64fd1703c872798684ee56cd2bc3425"
     }
-  ]
+  ],
+  "sdkSource": {
+    "repository": "https://github.com/Lithe-IDEA/lithe-plugin-docs",
+    "revision": "29b245c0e1d77c761d9032a3144a301d1818bfc7",
+    "localChanges": "Structured logging lithe/log implementation from the accompanying SDK working tree; exact reviewed source hashes below. No published release is claimed."
+  },
+  "coreSource": {
+    "repository": "https://github.com/1lck/Lithe-IDEA",
+    "ref": "preview",
+    "requiredCapabilities": [
+      "litheLogging:1"
+    ],
+    "prerequisite": "Merge the companion structured plugin logging host change into preview before plugin CI/release. The resolved revision and exact source digest are recorded by prepare-core."
+  }
 }

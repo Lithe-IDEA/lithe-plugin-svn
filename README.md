@@ -6,7 +6,7 @@ copies in an open project: status, diff against the base, history, annotate,
 check-in, rollback, update, conflict resolution, and moves through svn.
 
 **0.1.0 is unreleased preview source.** There is no published release yet.
-Automated tests run the package against a pinned Lithe Core and a real `svn`
+Automated tests run the package against the selected latest Lithe Core and a real `svn`
 client in this repository's CI; native installation and full UI acceptance
 are still pending.
 
@@ -77,6 +77,28 @@ root shown relative to it.
 Not in this version: Subversion locks, properties, changelists as groups,
 branches/switch, relocate, and merge tracking.
 
+## Diagnostic logs
+
+This branch requires a host offering `litheLogging: 1`. The vendored official
+Node SDK sends typed `lithe/log` notifications to the host's v2 catalog and
+writer, in the current session's `plugins/io.github.lithe-idea.svn-support/host`
+channel. Provider process and protocol facts remain in `vcs/svn`. The SDK owns each request's
+terminal event: meaningful success is INFO, failed operations are ERROR, and
+cancelled requests are not errors. Repeated background status/base-content
+successes are suppressed; their failures remain visible.
+
+A recovered annotation-history failure records one WARN `degraded` fact with
+a stable code and still returns the annotation without messages. It never
+copies history XML, source, command arguments, repository addresses or credentials
+into diagnostics. VCS console output remains separate from logs. The SDK does
+not print raw exception messages or stack traces for failed requests.
+
+Use Lithe's log window and diagnostic export. The SDK source base revision
+and local logging changes are identified by `sdk.lock.json`, with exact
+per-file hashes and no claim of a released artifact. No plugin writer,
+log directory or idle task is added. Windows still uses v1 logging;
+no Windows v2 acceptance is claimed.
+
 ## Development
 
 ```sh
@@ -91,9 +113,10 @@ upgrade, re-record with `scripts/record-fixtures.sh` and review the diff.
 
 The scenario test runs the assembled package through Lithe Core's public JSON
 API, exactly as the host starts it, against a throwaway `file://` repository.
-It needs svn, Rust, and a checkout of the Lithe revision pinned in
-`sdk.lock.json` at `.artifacts/lithe-core` (CI does this with a sparse
-checkout of `rust` and `shared`):
+It needs svn, Rust, and the selected host preview checked out at
+`.artifacts/lithe-core`; the companion `litheLogging: 1` host change must land
+first. See **Core integration source** below for strict source verification,
+local unpublished working-tree validation and the full command.
 
 ```sh
 node scripts/prepare-core.mjs
@@ -106,12 +129,41 @@ session and Core process even when an assertion fails.
 
 ## Updating the SDK
 
-The Node plugin SDK and test support are vendored from
-[1lck/Lithe-IDEA](https://github.com/1lck/Lithe-IDEA) at the exact revision in
-`sdk.lock.json`, with a SHA-256 per file; `scripts/verify-sdk.mjs` rejects
-changed or unpinned files. To update, copy the files from the new revision,
-update the lock, and run `node scripts/prepare-core.mjs` so the scenario runs
-against the same Core.
+The Node SDK is vendored from
+[Lithe-IDEA/lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs).
+`sdk.lock.json.sdkSource` records its true upstream base revision and the local
+structured logging changes; each SDK file has a SHA-256 and explicit source
+identity. The original `source` identifies historical test-support files;
+`coreSource` independently selects the integration host (see **Core
+integration source** below). Update the official SDK production inputs, review
+the diff, update every changed hash, and run `node scripts/verify-sdk.mjs`.
+Unpinned or changed vendor files are rejected before testing and packaging.
+
+## Core integration source
+
+CI and release verification explicitly check out `sdk.lock.json.coreSource.ref`
+(`preview`) from the verified host repository. **Merge the companion host
+structured logging change into preview before this plugin change**; preparation
+rejects a host missing the typed operation catalog rather than attempting an
+old-protocol fallback. It records the resolved commit and exact source SHA-256;
+this moving test ref is not presented as a pinned release artifact. SDK vendor
+hashes and the historical test-support source remain independently pinned.
+
+Local validation can select a particular real host checkout and revision:
+
+```sh
+node scripts/prepare-core.mjs --source /path/to/Lithe-IDEA --ref HEAD --working-tree --target-dir /path/to/Lithe-IDEA/rust/target
+LITHE_SVN_INTEGRATION=1 node scripts/test.mjs
+```
+
+`--working-tree` is a deliberate opt-in for local unpublished host changes;
+without it, dirty sources are rejected. The origin must still match the host
+repository and HEAD must resolve to the selected ref. The source remains
+unchanged: a test-only Rust executable links the built Core library in the
+plugin's private `.artifacts/core-target/`. Preparation records tracked and
+untracked `rust/` and `shared/` bytes, the harness and executable hashes;
+tests reject any drift after preparation. A caller may reuse an existing
+Cargo target with `--target-dir`, but never shares plugin state or log files.
 
 ## License
 

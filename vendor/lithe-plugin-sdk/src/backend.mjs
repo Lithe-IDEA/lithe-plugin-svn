@@ -4,18 +4,25 @@
 // cancellation, error codes, and the `lithe/*` namespace -- and leaves the
 // plugin free to decide what its handlers do.
 //
-// Contracts: shared/contracts/plugins/v1/README.md ("Build providers" and
-// "Plugin functions") and shared/contracts/vcs-provider-v1.md.
+// Contracts: contract/v1/README.md ("Build providers", "Plugin functions",
+// "Host services" and "VCS providers"), and Lithe's
+// shared/contracts/vcs-provider-v1.md.
 
 import { format } from 'node:util';
+import { performance } from 'node:perf_hooks';
+import { diagnostics, KNOWN_OPERATIONS, requestOperationId } from './diagnostics.mjs';
 import { encodeFrame, FrameDecoder, FramingError, MALFORMED } from './framing.mjs';
-import { PluginSdkError, toResponseError } from './errors.mjs';
+import { HostError, PluginError, PluginSdkError, toResponseError } from './errors.mjs';
+import { createHost, HostChannel } from './host.mjs';
 import { killAllProcesses, runProcess } from './process.mjs';
 import {
   BUILD_VERSION,
+  BUILD_METHOD_VERSIONS,
   boundedText,
   ERROR_CODES,
   FUNCTIONS_VERSION,
+  HOST_NOTIFICATIONS,
+  isContextReference,
   isFunctionId,
   isReservedMethod,
   isVcsId,
@@ -30,7 +37,11 @@ import {
 const BUILD_FORMATS = Object.freeze({
   [METHODS.buildModel]: 'litheBuildModel',
   [METHODS.buildDependencies]: 'litheDependencies',
+  [METHODS.buildDiscoverTests]: 'litheTestDiscovery',
 });
+
+/** Host notifications the SDK routes itself; see `onCommand`, `onContextsChanged`, and `host.subscribe`. */
+const ROUTED_NOTIFICATIONS = Object.freeze(Object.values(HOST_NOTIFICATIONS));
 
 /** VCS capabilities that describe the VCS rather than a request it answers. */
 const VCS_TRAITS = Object.freeze(['push', 'staging']);
@@ -51,15 +62,25 @@ export function createBackend(options = {}) {
 }
 
 class Backend {
+  #logging = false;
+  #loggingReady = false;
+  #earlyDiagnostics = [];
+  #quietSuccess = new Set();
   #name;
   #version;
   #capabilities;
   #functions = new Map();
   #buildHandlers = new Map();
+  #buildVersion = null;
+  #functionsVersion = null;
   /** The declared VCS provider: `{ id, handlers: Map<method, handler>, capabilities }`. */
   #vcs = null;
   #requestHandlers = new Map();
   #notificationHandlers = new Map();
+  #commandHandlers = new Map();
+  #contextsHandler = null;
+  #hostNotificationHandlers = new Map();
+  #channel;
   #initializeHooks = [];
   #shutdownHooks = [];
   /** `idle` → `listening` → `initializing` → `ready` → `shuttingDown` → `exited`. */
@@ -80,9 +101,16 @@ class Backend {
   /** Typed build-provider handlers (`lithe/build/*`). */
   build;
 
+  /**
+   * Host services (`lithe/host/*`) of plugin-function protocols 2 and 3,
+   * usable once the session is ready. A handler's `context.host` is the
+   * same object bound to its call.
+   */
+  host;
+
   constructor({ name = 'lithe-plugin-backend', version, capabilities = {} } = {}) {
     const experimental = capabilities.experimental ?? {};
-    if ('litheBuild' in experimental || 'litheFunctions' in experimental || 'litheVcs' in experimental) {
+    if ('litheLogging' in experimental || 'litheBuild' in experimental || 'litheFunctions' in experimental || 'litheVcs' in experimental) {
       throw new PluginSdkError(
         'sdk.capabilities.reserved',
         'litheBuild, litheFunctions, and litheVcs are negotiated by the SDK; declare handlers instead.',
@@ -96,13 +124,34 @@ class Backend {
       model: (handler) => this.#declareBuild(METHODS.buildModel, handler),
       /** Answers `lithe/build/dependencies` with a `litheDependencies` document. */
       dependencies: (handler) => this.#declareBuild(METHODS.buildDependencies, handler),
+      /** Runs a bounded task in the provider; the host owns its operation. */
+      execute: (handler) => this.#declareBuild(METHODS.buildExecute, handler),
+      test: (handler) => this.#declareBuild(METHODS.buildTest, handler),
+      discoverTests: (handler) => this.#declareBuild(METHODS.buildDiscoverTests, handler),
+      /** Prepares a plan; the application itself belongs to the host. */
+      prepareRun: (handler) => this.#declareBuild(METHODS.buildPrepareRun, handler),
+      prepareDebug: (handler) => this.#declareBuild(METHODS.buildPrepareDebug, handler),
     });
+    this.#channel = new HostChannel({
+      version: () => this.#functionsVersion ?? 0,
+      ready: () => this.#phase === 'ready',
+      send: (method, params) => this.#send(method, params),
+      notify: (method, params) => this.#write({ jsonrpc: '2.0', method, params }),
+      log: () => this.#diagnostics().degraded('notification', 'event_handler_failed'),
+    });
+    this.host = createHost(this.#channel);
   }
 
   /** Protocols the host agreed to in `initialize`; all false before it. */
   get negotiated() {
     return this.#negotiated;
   }
+
+  /** Selected build protocol version, or null when unavailable. */
+  get buildVersion() { return this.#buildVersion; }
+
+  /** Selected plugin-function protocol version (1-3), or null when unavailable. */
+  get functionsVersion() { return this.#functionsVersion; }
 
   /** The host's `initialize` params, or null before it arrives. */
   get initializeParams() {
@@ -189,6 +238,47 @@ class Backend {
     return this;
   }
 
+  /**
+   * Handles `lithe/host/commands/didRun` for one of the plugin's commands
+   * (protocol 3). The handler gets `{ commandID, workspaceContext }`, the
+   * context of the window it ran in or null. It is an event: the host waits
+   * for no result.
+   */
+  onCommand(commandID, handler) {
+    if (typeof commandID !== 'string' || !/^[a-z0-9.-]{1,128}$/.test(commandID)) {
+      throw new PluginSdkError('sdk.command.invalidID', `Command ID ${JSON.stringify(commandID)} must be 1-128 of [a-z0-9.-].`);
+    }
+    if (typeof handler !== 'function') throw new TypeError('A command handler must be a function.');
+    this.#commandHandlers.set(commandID, handler);
+    return this;
+  }
+
+  /**
+   * Handles `lithe/host/workspace/didChangeContexts` (protocol 3) with
+   * `{ revision }`; call `host.workspace.listContexts()` for the contexts.
+   */
+  onContextsChanged(handler) {
+    if (typeof handler !== 'function') throw new TypeError('A handler must be a function.');
+    this.#contextsHandler = handler;
+    return this;
+  }
+
+  /**
+   * Handles a `lithe/host/*` notification a later host adds. Commands,
+   * context changes, and subscription events have their own APIs.
+   */
+  onHostNotification(method, handler) {
+    if (typeof method !== 'string' || !method.startsWith('lithe/host/')) {
+      throw new PluginSdkError('sdk.method.invalid', `${method} is not a host notification.`);
+    }
+    if (ROUTED_NOTIFICATIONS.includes(method)) {
+      throw new PluginSdkError('sdk.method.reserved', `${method} is routed by the SDK; use onCommand, onContextsChanged, or host.subscribe.`);
+    }
+    if (typeof handler !== 'function') throw new TypeError('A handler must be a function.');
+    this.#hostNotificationHandlers.set(method, handler);
+    return this;
+  }
+
   /** Runs before the `initialize` answer, with `{ params, negotiated }`. */
   onInitialize(hook) {
     this.#initializeHooks.push(hook);
@@ -223,6 +313,7 @@ class Backend {
         await this.#request(METHODS.functionRegister, { functions: [{ id }] });
       } catch (error) {
         this.#functions.delete(id);
+        this.#quietSuccess.delete(id);
         throw error;
       }
     });
@@ -235,6 +326,7 @@ class Backend {
         if (!this.#functions.delete(id)) {
           throw new PluginSdkError('sdk.function.unknown', `Function ${id} is not registered.`);
         }
+        this.#quietSuccess.delete(id);
       });
     }
     return this.#queueRegistration(async () => {
@@ -244,6 +336,7 @@ class Backend {
       }
       await this.#request(METHODS.functionUnregister, { ids: [id] });
       this.#functions.delete(id);
+      this.#quietSuccess.delete(id);
       for (const call of this.#incoming.values()) {
         if (call.functionID === id) call.controller.abort();
       }
@@ -262,9 +355,20 @@ class Backend {
     this.#write({ jsonrpc: '2.0', method, ...(params === undefined ? {} : { params }) });
   }
 
-  /** Writes a diagnostic line to stderr, which the host keeps in its log. */
-  log(...parts) {
-    this.#errorOutput.write(`[${this.#name}] ${format(...parts)}\n`);
+  get diagnostics() { return this.#diagnostics(); }
+
+  suppressSuccessDiagnostics(operation) {
+    if (!KNOWN_OPERATIONS.has(operation) && !this.#functions.has(operation)) throw new PluginSdkError('sdk.logging.invalidOperation', 'Suppress a registered operation.');
+    this.#quietSuccess.add(operation);
+    return this;
+  }
+
+  #diagnostics(operationId) {
+    return diagnostics((params) => {
+      if (!this.#logging) return;
+      if (!this.#loggingReady) { if (this.#earlyDiagnostics.length < 8) this.#earlyDiagnostics.push(params); return; }
+      this.#write({ jsonrpc: '2.0', method: 'lithe/log', params });
+    }, (id) => this.#functions.has(id), operationId);
   }
 
   /**
@@ -293,6 +397,8 @@ class Backend {
         this.#phase = 'exited';
         this.#abortAll();
         killAllProcesses();
+        // Before the pending requests fail, so a freed slot starts nothing.
+        this.#channel.close();
         for (const pending of this.#outgoing.values()) {
           pending.reject(new PluginSdkError('sdk.session.closed', 'The session ended.'));
         }
@@ -308,7 +414,7 @@ class Backend {
           messages = decoder.push(chunk);
         } catch (error) {
           if (!(error instanceof FramingError)) throw error;
-          this.log('Ending the session:', error.message);
+          this.#diagnostics().terminal('notification', {code:'framing_error'}, 0);
           this.#finish(1);
           return;
         }
@@ -364,13 +470,13 @@ class Backend {
       return;
     }
     const build = this.#buildHandlers.get(method);
-    if (build && this.#negotiated.build) {
-      this.#run(id, null, (context) => build(params ?? {}, context), (result) => buildResult(method, result));
+    if (build && this.#buildVersion >= BUILD_METHOD_VERSIONS[method]) {
+      this.#invokeBuild(id, method, params ?? {}, build);
       return;
     }
     const vcs = this.#negotiated.vcs ? this.#vcs.methods.get(method) : undefined;
     if (vcs) {
-      this.#run(id, null, (context) => vcs(params ?? {}, this.#vcsContext(context)), (result) => vcsResult(method, result));
+      this.#run(id, null, (context) => vcs(params ?? {}, this.#vcsContext(context)), (result) => vcsResult(method, result), undefined, method, params?.operationID);
       return;
     }
     const handler = this.#requestHandlers.get(method);
@@ -391,11 +497,45 @@ class Backend {
       return;
     }
     if (this.#phase !== 'ready' || method === METHODS.initialized) return;
+    if (typeof method === 'string' && method.startsWith('lithe/host/')) {
+      this.#hostNotification(method, params);
+      return;
+    }
     const handler = this.#notificationHandlers.get(method);
     if (!handler) return;
     Promise.resolve()
       .then(() => handler(params))
-      .catch((error) => this.log(`Notification ${method} failed:`, error));
+      .catch((error) => this.#diagnostics().terminal('notification', { code: failureKind(error) }, 0));
+  }
+
+  /**
+   * Routes a host notification. Core checked its shape and the session's
+   * grant; one this SDK does not know is ignored, as the contract asks.
+   */
+  #hostNotification(method, params) {
+    if ((this.#functionsVersion ?? 0) < 3 || !isObject(params)) return;
+    if (method === HOST_NOTIFICATIONS.subscriptionNotify) {
+      this.#channel.deliver(params);
+      return;
+    }
+    let handler;
+    let event = params;
+    if (method === HOST_NOTIFICATIONS.commandDidRun) {
+      handler = this.#commandHandlers.get(params.commandID);
+      event = { commandID: params.commandID, workspaceContext: isContextReference(params.context) ? params.context : null };
+      if (!handler) {
+        this.#diagnostics().degraded('notification', 'command_unhandled');
+        return;
+      }
+    } else if (method === HOST_NOTIFICATIONS.didChangeContexts) {
+      handler = this.#contextsHandler;
+    } else {
+      handler = this.#hostNotificationHandlers.get(method);
+    }
+    if (!handler) return;
+    Promise.resolve()
+      .then(() => handler(event))
+      .catch((error) => this.#diagnostics().terminal('notification', { code: failureKind(error) }, 0));
   }
 
   async #initialize(id, params) {
@@ -406,10 +546,22 @@ class Backend {
     this.#phase = 'initializing';
     this.#initializeParams = params;
     const offered = params.capabilities?.experimental ?? {};
+    this.#loggingReady = false;
+    this.#earlyDiagnostics = [];
+    this.#logging = offered.litheLogging?.versions?.includes(1) === true;
+    if (!this.#logging) {
+      this.#phase = 'listening';
+      this.#respond(id, undefined, { code: ERROR_CODES.invalidRequest, message: 'The backend requires litheLogging version 1.' });
+      return;
+    }
     const offers = (entry, version) => Array.isArray(entry?.versions) && entry.versions.includes(version);
+    const highest = (entry, latest) => Array.from({ length: latest }, (_, index) => latest - index)
+      .find((version) => offers(entry, version)) ?? null;
+    this.#buildVersion = this.#buildHandlers.size > 0 ? highest(offered.litheBuild, BUILD_VERSION) : null;
+    this.#functionsVersion = highest(offered.litheFunctions, FUNCTIONS_VERSION);
     this.#negotiated = Object.freeze({
-      functions: offers(offered.litheFunctions, FUNCTIONS_VERSION),
-      build: this.#buildHandlers.size > 0 && offers(offered.litheBuild, BUILD_VERSION),
+      functions: this.#functionsVersion !== null,
+      build: this.#buildVersion !== null,
       vcs: this.#vcs !== null && offers(offered.litheVcs, VCS_VERSION),
     });
     try {
@@ -417,7 +569,6 @@ class Backend {
         await hook({ params, negotiated: this.#negotiated });
       }
     } catch (error) {
-      this.log('initialize failed:', error);
       if (this.#phase === 'initializing') this.#phase = 'listening';
       this.#respond(id, undefined, toResponseError(error));
       return;
@@ -429,18 +580,18 @@ class Backend {
       return;
     }
     if (!this.#negotiated.functions && this.#functions.size > 0) {
-      this.log('The host did not offer litheFunctions version 1; functions stay unavailable.');
+      this.#diagnostics().degraded('initialize', 'functions_unavailable');
     }
-    const experimental = { ...(this.#capabilities.experimental ?? {}) };
-    if (this.#negotiated.build) experimental.litheBuild = { version: BUILD_VERSION };
+    const experimental = { ...(this.#capabilities.experimental ?? {}), litheLogging: { version: 1 } };
+    if (this.#negotiated.build) experimental.litheBuild = { version: this.#buildVersion };
     if (this.#negotiated.vcs) {
       experimental.litheVcs = { version: VCS_VERSION, vcs: this.#vcs.id, capabilities: this.#vcs.capabilities };
     } else if (this.#vcs) {
-      this.log('The host did not offer litheVcs version 1; the VCS provider stays unavailable.');
+      this.#diagnostics().degraded('initialize', 'vcs_unavailable');
     }
     if (this.#negotiated.functions) {
       experimental.litheFunctions = {
-        version: FUNCTIONS_VERSION,
+        version: this.#functionsVersion,
         functions: this.functionIDs.map((functionID) => ({ id: functionID })),
       };
     }
@@ -449,6 +600,8 @@ class Backend {
       capabilities: { ...this.#capabilities, experimental },
       serverInfo: { name: this.#name, ...(this.#version ? { version: this.#version } : {}) },
     });
+    this.#loggingReady = true;
+    for (const params of this.#earlyDiagnostics.splice(0)) this.#write({ jsonrpc: '2.0', method: 'lithe/log', params });
   }
 
   async #shutdown(id) {
@@ -462,14 +615,41 @@ class Backend {
       try {
         await hook();
       } catch (error) {
-        this.log('A shutdown hook failed:', error);
+        this.#diagnostics().terminal('shutdown', { code: failureKind(error) }, 0);
       }
     }
     killAllProcesses();
     this.#respond(id, null);
   }
 
-  #invokeFunction(id, { functionID, operationID, params }) {
+  #invokeBuild(id, method, params, handler) {
+    if (Object.hasOwn(params ?? {}, 'modelInputs') && this.#buildVersion < 6) {
+      this.#respond(id, undefined, { code: ERROR_CODES.invalidParams, message: 'Model inputs require build protocol 6.' });
+      return;
+    }
+    const progressing = [METHODS.buildExecute, METHODS.buildTest, METHODS.buildPrepareRun, METHODS.buildPrepareDebug].includes(method);
+    if (!params || typeof params !== 'object' || Array.isArray(params)
+        || (progressing && typeof params.operationID !== 'string')) {
+      this.#respond(id, undefined, { code: ERROR_CODES.invalidParams, message: 'A build request needs object params and its wire operationID.' });
+      return;
+    }
+    const operationID = params.operationID;
+    let reporting = true;
+    this.#run(id, null, (context) => handler(params, progressing ? {
+      ...context,
+      operationID,
+      progress: ({ message, percentage, output } = {}) => {
+        if (!reporting || context.signal.aborted) return;
+        const report = { operationID };
+        if (message !== undefined) report.message = boundedText(message, LIMITS.maxBuildMessageBytes);
+        if (output !== undefined) report.output = boundedText(output, LIMITS.maxBuildOutputBytes);
+        if (Number.isFinite(percentage)) report.percentage = Math.min(100, Math.max(0, Math.round(percentage)));
+        this.#write({ jsonrpc: '2.0', method: METHODS.buildProgress, params: report });
+      },
+    } : context), (result) => buildResult(method, result), () => { reporting = false; }, method, operationID);
+  }
+
+  #invokeFunction(id, { functionID, operationID, params, context: workspaceContext }) {
     const handler = this.#negotiated.functions ? this.#functions.get(functionID) : undefined;
     if (!handler) {
       this.#respond(id, undefined, { code: ERROR_CODES.invalidParams, message: `Function ${functionID} is not registered.` });
@@ -486,22 +666,36 @@ class Backend {
     this.#run(
       id,
       functionID,
-      (context) => handler(params ?? {}, { ...context, functionID, operationID, progress }),
+      (context) => handler(params ?? {}, {
+        ...context,
+        functionID,
+        operationID,
+        // The page's window, from protocol 3; null for a call without one.
+        workspaceContext: isContextReference(workspaceContext) ? workspaceContext : null,
+        progress,
+      }),
       functionResult,
       () => {
         reporting = false;
       },
+      functionID,
+      operationID,
     );
   }
 
   /** Runs one handler with its own cancellation and answers exactly once. */
-  #run(id, functionID, invoke, shape, onSettled) {
+  #run(id, functionID, invoke, shape, onSettled, operation = functionID ?? 'function-call', operationId) {
+    const started = performance.now();
+    const diagnostic = this.#diagnostics(requestOperationId(operationId, id));
+    let quietSuccess = false;
     const controller = new AbortController();
     const key = requestKey(id);
     this.#incoming.set(key, { controller, functionID });
     const { signal } = controller;
     const context = {
       signal,
+      diagnostics: diagnostic,
+      suppressSuccessDiagnostics: () => { quietSuccess = true; },
       throwIfCancelled: () => signal.throwIfAborted(),
       run: (command, args, options = {}) => {
         const running = runProcess(command, args, {
@@ -513,7 +707,7 @@ class Backend {
         running.catch(() => {});
         return running;
       },
-      log: (...parts) => this.log(...parts),
+      host: createHost(this.#channel, signal),
     };
     Promise.resolve()
       .then(() => invoke(context))
@@ -523,16 +717,15 @@ class Backend {
           return { result: shape(value) };
         },
         (error) => {
-          if (!signal.aborted) this.log(`${functionID ? `Function ${functionID}` : 'A request'} failed:`, error);
           return { error: toResponseError(error, signal) };
         },
       )
       .catch((error) => {
         // Shaping the result failed, for example a build result in another format.
-        if (!signal.aborted) this.log('The result could not be sent:', error);
         return { error: toResponseError(error, signal) };
       })
       .then(({ result, error }) => {
+        if (!signal.aborted && (error || (!quietSuccess && !this.#quietSuccess.has(operation)))) diagnostic.terminal(operation, error ? { code: error.data?.code ?? 'internal_error' } : null, performance.now() - started);
         onSettled?.();
         this.#incoming.delete(key);
         // Work belongs to its call: tools still running when the handler
@@ -644,11 +837,17 @@ class Backend {
   }
 
   #request(method, params) {
+    return this.#send(method, params).response;
+  }
+
+  /** Writes a request to the host; `response` settles with its answer. */
+  #send(method, params) {
     const id = `sdk-${this.#nextRequestId++}`;
-    return new Promise((resolve, reject) => {
+    const response = new Promise((resolve, reject) => {
       this.#outgoing.set(id, { resolve, reject, method });
       this.#write({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) });
     });
+    return { id, response };
   }
 
   #settleOutgoing({ id, result, error }) {
@@ -656,9 +855,7 @@ class Backend {
     if (!pending) return;
     this.#outgoing.delete(id);
     if (error) {
-      const failure = new PluginSdkError(error.data?.code ?? 'sdk.host.error', error.message ?? `${pending.method} failed.`);
-      failure.rpcCode = error.code;
-      pending.reject(failure);
+      pending.reject(HostError.fromResponse(pending.method, error));
     } else {
       pending.resolve(result ?? null);
     }
@@ -675,7 +872,7 @@ class Backend {
     } catch (failure) {
       // A result JSON cannot encode, such as a BigInt or a cycle, must not
       // become an unhandled rejection that ends the whole session.
-      this.log('The result could not be encoded:', failure);
+      this.#diagnostics().terminal('result-encoding', { code: 'result_encoding_failed' }, 0);
       this.#write({ jsonrpc: '2.0', id, error: toResponseError(failure) });
     }
   }
@@ -684,6 +881,12 @@ class Backend {
     if (!this.#output || this.#phase === 'exited') return;
     this.#output.write(encodeFrame(message));
   }
+}
+
+// Errors can include request bodies, credentials and paths. Only the category
+// crosses the diagnostic boundary; the response keeps its existing error contract.
+function failureKind(error) {
+  return error instanceof PluginError ? 'plugin_error' : 'internal_error';
 }
 
 /** Runs `change` now and reports its outcome as a promise. */
@@ -708,16 +911,47 @@ function requestKey(id) {
  */
 function buildResult(method, result) {
   const expected = BUILD_FORMATS[method];
-  if (result === null || typeof result !== 'object' || Array.isArray(result)) {
-    throw new PluginSdkError('sdk.build.invalidResult', `${method} must return a ${expected} object.`);
+  if (!isObject(result)) {
+    throw new PluginSdkError('sdk.build.invalidResult', `${method} must return a reply object.`);
   }
-  if (result.format !== undefined && result.format !== expected) {
-    throw new PluginSdkError('sdk.build.invalidResult', `${method} returned format ${result.format}, not ${expected}.`);
+  let document = result;
+  if (expected) {
+    if (result.format !== undefined && result.format !== expected) {
+      throw new PluginSdkError('sdk.build.invalidResult', `${method} returned format ${result.format}, not ${expected}.`);
+    }
+    if (result.version !== undefined && result.version !== 1) {
+      throw new PluginSdkError('sdk.build.invalidResult', `${method} returned version ${result.version}, not 1.`);
+    }
+    document = { ...result, format: expected, version: 1 };
   }
-  if (result.version !== undefined && result.version !== 1) {
-    throw new PluginSdkError('sdk.build.invalidResult', `${method} returned version ${result.version}, not 1.`);
+  if ([METHODS.buildExecute, METHODS.buildTest].includes(method)
+      && (!Number.isInteger(result.exitCode) || result.exitCode < -2147483648 || result.exitCode > 2147483647
+        || typeof result.output !== 'string' || Buffer.byteLength(result.output) > LIMITS.maxBuildResultBytes)) {
+    throw new PluginSdkError('sdk.build.invalidResult', `${method} needs an int32 exitCode and bounded output.`);
   }
-  return { ...result, format: expected, version: 1 };
+  if (method === METHODS.buildPrepareRun
+      && (!isObject(result.executable) || !['toolchain', 'command'].includes(result.executable.kind)
+        || typeof result.executable.value !== 'string' || typeof result.workingDirectory !== 'string'
+        || !Array.isArray(result.arguments) || !result.arguments.every((value) => typeof value === 'string')
+        || !isObject(result.environment) || !Object.values(result.environment).every((value) => typeof value === 'string'))) {
+    throw new PluginSdkError('sdk.build.invalidResult', `${method} needs a portable launch plan.`);
+  }
+  if (method === METHODS.buildPrepareDebug
+      && (typeof result.program !== 'string' || typeof result.workingDirectory !== 'string'
+        || !Array.isArray(result.arguments) || !result.arguments.every((value) => typeof value === 'string')
+        || !isObject(result.environment) || !Object.values(result.environment).every((value) => typeof value === 'string')
+        || Object.keys(result).some((key) => !['program', 'arguments', 'workingDirectory', 'environment'].includes(key)))) {
+    throw new PluginSdkError('sdk.build.invalidResult', `${method} needs native debug target facts, without an adapter or DAP arguments.`);
+  }
+  // Workspace containment and domain facts remain Core/provider responsibilities.
+  if (Buffer.byteLength(JSON.stringify(document)) > LIMITS.maxBuildResultBytes) {
+    throw new PluginSdkError('sdk.build.invalidResult', `${method} exceeds the build-result size limit.`);
+  }
+  return document;
+}
+
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**

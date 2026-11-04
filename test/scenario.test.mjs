@@ -209,6 +209,15 @@ test('the plugin works on a real working copy through Lithe Core', { skip: integ
   provider.tool = join(scratch, 'missing/svn');
   const unavailable = await provider.send('status', {});
   assert.equal(unavailable.error?.code, 'vcs.tool.unavailable', JSON.stringify(unavailable));
+  const diagnosticBatch = await core.call('diagnostics.drainCoreEvents', {});
+  const unavailableLog = diagnosticBatch.events.find((entry) =>
+    entry.event === 'plugins.operation.failed' && entry.fields.operation === 'lithe/vcs/status');
+  assert.ok(unavailableLog, JSON.stringify(diagnosticBatch));
+  assert.equal(unavailableLog.op, unavailable.operationId);
+  assert.equal(unavailableLog.level, 'ERROR');
+  assert.equal(unavailableLog.channel, 'plugins/io.github.lithe-idea.svn-support/host');
+  assert.equal(unavailableLog.fields.code, 'vcs.tool.unavailable');
+  assert.ok(!JSON.stringify(unavailableLog).includes(scratch));
   provider.tool = svnPath;
 
   // Local edits, a file removed without svn, and a new file.

@@ -222,14 +222,20 @@ async function addMessages(params, context, revisions) {
   const result = await svn(params, context, ['log', '--xml', '-r', range, '--', target(params.path)], {
     maxOutputBytes: XML_OUTPUT_LIMIT,
   });
-  if (result.exitCode !== 0 || result.truncated) return;
+  if (result.exitCode !== 0 || result.truncated) {
+    // The annotation is usable without messages; keep this recovered failure
+    // separate from the SDK-owned failed-request boundary and omit svn output.
+    context.diagnostics.degraded('lithe/vcs/annotate', result.truncated
+      ? 'svn.annotation.historyTruncated' : 'svn.annotation.historyUnavailable');
+    return;
+  }
   try {
     for (const entry of parseLog(result.stdout, null)) {
       const blamed = revisions.get(entry.revision.id);
       if (blamed) blamed.message = entry.message;
     }
   } catch {
-    // Unreadable log output leaves the messages out.
+    context.diagnostics.degraded('lithe/vcs/annotate', 'svn.annotation.historyInvalid');
   }
 }
 
@@ -437,6 +443,8 @@ async function cleanup(params, context) {
 }
 
 createBackend({ name: 'svn-support', version: '0.1.0' })
+  .suppressSuccessDiagnostics('lithe/vcs/status')
+  .suppressSuccessDiagnostics('lithe/vcs/baseContent')
   .vcs('svn', {
     status,
     baseContent,

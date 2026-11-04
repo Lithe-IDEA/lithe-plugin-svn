@@ -71,9 +71,13 @@ jobs:
             exit 0
           fi
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
-          macOS Subversion provider for a Lithe preview whose host declares API 3 vcsProviders 1 and serverProcess 1.
+          macOS Subversion provider for a Lithe preview whose host declares API 3 vcsProviders 1 and serverProcess 1 and offers structured plugin diagnostics (litheLogging 1). Stable Lithe 0.6.7 does not offer litheLogging 1 and cannot start this version; keep using 0.1.0 there.
 
-          Shows and commits the changes of Subversion working copies in Lithe's version control tool window: status, base diff, history, annotate, check-in, rollback, update, conflict resolution, and moves through svn. Requires Subversion 1.8+ and Node.js 20.3+, both user-provided.
+          Changes in 0.1.1:
+          - Structured diagnostics: the bundled Node SDK records failed provider requests as ERROR on the plugins/io.github.lithe-idea.svn-support/host channel of Lithe's log window, with a stable failure code. Background status and base-content successes are not logged.
+          - A recovered annotate history failure records one WARN degraded entry and still returns the annotation without commit messages. svn output, history XML, source, repository addresses and credentials never enter the log.
+
+          Requires Subversion 1.8+ and Node.js 20.3+, both user-provided. Not listed in Lithe Store yet; download the ZIP and install it from disk.
 
           Preview status: automated Core integration and svn scenario checks pass; native installation and full UI acceptance are pending. Windows is not supported. Published ZIP bytes must not be replaced.
           NOTES

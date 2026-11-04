@@ -5,14 +5,15 @@ version control tool window show and commit the changes of Subversion working
 copies in an open project: status, diff against the base, history, annotate,
 check-in, rollback, update, conflict resolution, and moves through svn.
 
-**0.1.0 is unreleased preview source.** There is no published release yet.
-Automated tests run the package against the selected latest Lithe Core and a real `svn`
-client in this repository's CI; native installation and full UI acceptance
-are still pending.
+**0.1.1 is a preview release.** Automated tests run the package against the
+selected latest Lithe Core and a real `svn` client in this repository's CI;
+native installation and full UI acceptance are still pending.
 
 The plugin requires a Lithe preview whose host declares the `vcsProviders`
-capability (API 3 `vcsProviders: 1` and `serverProcess: 1`). Older hosts
-refuse to install it. Windows is not supported yet.
+capability (API 3 `vcsProviders: 1` and `serverProcess: 1`) and offers
+structured plugin diagnostics (`litheLogging: 1`). Older hosts refuse to
+install it; stable Lithe 0.6.7 installs it but cannot start the provider, so
+keep 0.1.0 there. Windows is not supported yet.
 
 ## Install
 
@@ -20,13 +21,15 @@ Install Subversion 1.8 or newer (for example `brew install subversion`) and
 Node.js 20.3 or newer first. Node runs the provider; svn is not bundled and is
 the client you already use, with its own configuration and credential cache.
 
-Build `dist/svn-support-0.1.0-darwin.zip` with `node scripts/package.mjs`.
+Download `svn-support-0.1.1-darwin.zip` from
+[Releases](https://github.com/Lithe-IDEA/lithe-plugin-svn/releases), or build it
+with `node scripts/package.mjs`.
 In Lithe, choose Settings → Plugins → Install from Disk, select the ZIP,
 review the provider command, the svn client and its network use, and
 restart. Enable Subversion, then open a project that is, or contains, a
-Subversion working copy. After a [Lithe Store](https://github.com/Lithe-IDEA/Lithe-store)
-entry is merged, compatible preview builds can also install it from the plugin
-marketplace.
+Subversion working copy. 0.1.1 is not listed in
+[Lithe Store](https://github.com/Lithe-IDEA/Lithe-store) yet: the Store cannot
+tell stable hosts without `litheLogging: 1` apart, so install it from disk.
 
 ## How it works
 
@@ -79,7 +82,7 @@ branches/switch, relocate, and merge tracking.
 
 ## Diagnostic logs
 
-This branch requires a host offering `litheLogging: 1`. The vendored official
+Version 0.1.1 requires a host offering `litheLogging: 1`. The vendored official
 Node SDK sends typed `lithe/log` notifications to the host's v2 catalog and
 writer, in the current session's `plugins/io.github.lithe-idea.svn-support/host`
 channel. Provider process and protocol facts remain in `vcs/svn`. The SDK owns each request's

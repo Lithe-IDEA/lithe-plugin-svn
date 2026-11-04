@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "io.github.lithe-idea.svn-support",
   "displayName": "Subversion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "pluginAPIVersion": 3,
   "requires": { "serverProcess": 1, "vcsProviders": 1 },
   "vendor": { "id": "io.github.lithe-idea", "displayName": "Lithe Community", "signatureRequirement": "none" },

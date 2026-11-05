@@ -5,7 +5,7 @@ version control tool window show and commit the changes of Subversion working
 copies in an open project: status, diff against the base, history, annotate,
 check-in, rollback, update, conflict resolution, and moves through svn.
 
-**0.1.1 is a preview release.** Automated tests run the package against the
+**0.1.2 is a preview release.** Automated tests run the package against the
 selected latest Lithe Core and a real `svn` client in this repository's CI;
 native installation and full UI acceptance are still pending.
 
@@ -13,7 +13,9 @@ The plugin requires a Lithe preview whose host declares the `vcsProviders`
 capability (API 3 `vcsProviders: 1` and `serverProcess: 1`) and offers
 structured plugin diagnostics (`litheLogging: 1`). Older hosts refuse to
 install it; stable Lithe 0.6.7 installs it but cannot start the provider, so
-keep 0.1.0 there. Windows is not supported yet.
+keep 0.1.0 there. Windows is not supported yet. The plugin uses the released
+Node.js SDK 0.3.0, pinned by tag and SHA-256 in `sdk.lock.json`; that SDK reports
+structured diagnostics and so needs a Lithe build offering `litheLogging: 1`.
 
 ## Install
 
@@ -21,13 +23,13 @@ Install Subversion 1.8 or newer (for example `brew install subversion`) and
 Node.js 20.3 or newer first. Node runs the provider; svn is not bundled and is
 the client you already use, with its own configuration and credential cache.
 
-Download `svn-support-0.1.1-darwin.zip` from
+Download `svn-support-0.1.2-darwin.zip` from
 [Releases](https://github.com/Lithe-IDEA/lithe-plugin-svn/releases), or build it
 with `node scripts/package.mjs`.
 In Lithe, choose Settings → Plugins → Install from Disk, select the ZIP,
 review the provider command, the svn client and its network use, and
 restart. Enable Subversion, then open a project that is, or contains, a
-Subversion working copy. 0.1.1 is not listed in
+Subversion working copy. 0.1.2 is not listed in
 [Lithe Store](https://github.com/Lithe-IDEA/Lithe-store) yet: the Store cannot
 tell stable hosts without `litheLogging: 1` apart, so install it from disk.
 
@@ -82,8 +84,8 @@ branches/switch, relocate, and merge tracking.
 
 ## Diagnostic logs
 
-Version 0.1.1 requires a host offering `litheLogging: 1`. The vendored official
-Node SDK sends typed `lithe/log` notifications to the host's v2 catalog and
+Version 0.1.2 requires a host offering `litheLogging: 1`. The vendored official
+Node SDK 0.3.0 sends typed `lithe/log` notifications to the host's v2 catalog and
 writer, in the current session's `plugins/io.github.lithe-idea.svn-support/host`
 channel. Provider process and protocol facts remain in `vcs/svn`. The SDK owns each request's
 terminal event: meaningful success is INFO, failed operations are ERROR, and
@@ -96,17 +98,17 @@ copies history XML, source, command arguments, repository addresses or credentia
 into diagnostics. VCS console output remains separate from logs. The SDK does
 not print raw exception messages or stack traces for failed requests.
 
-Use Lithe's log window and diagnostic export. The SDK source base revision
-and local logging changes are identified by `sdk.lock.json`, with exact
-per-file hashes and no claim of a released artifact. No plugin writer,
-log directory or idle task is added. Windows still uses v1 logging;
-no Windows v2 acceptance is claimed.
+Use Lithe's log window and diagnostic export. The vendored SDK files are
+byte-identical to the released Node.js SDK 0.3.0 archive, as pinned by
+`sdk.lock.json`. No plugin writer, log directory or idle task is added.
+Windows still uses v1 logging; no Windows v2 acceptance is claimed.
 
 ## Development
 
 ```sh
 node --test test/svn-output.test.mjs test/xml.test.mjs   # parsing, no svn needed
 node scripts/verify-sdk.mjs                               # vendored SDK matches sdk.lock.json
+node scripts/verify-sdk.mjs --download                    # ... and the released SDK archive
 node scripts/package.mjs                                  # dist/ ZIP and SHA-256
 ```
 
@@ -117,9 +119,9 @@ upgrade, re-record with `scripts/record-fixtures.sh` and review the diff.
 The scenario test runs the assembled package through Lithe Core's public JSON
 API, exactly as the host starts it, against a throwaway `file://` repository.
 It needs svn, Rust, and the selected host preview checked out at
-`.artifacts/lithe-core`; the companion `litheLogging: 1` host change must land
-first. See **Core integration source** below for strict source verification,
-local unpublished working-tree validation and the full command.
+`.artifacts/lithe-core`, and the host must offer `litheLogging: 1`. See
+**Core integration source** below for strict source verification, local
+unpublished working-tree validation and the full command.
 
 ```sh
 node scripts/prepare-core.mjs
@@ -132,25 +134,28 @@ session and Core process even when an assertion fails.
 
 ## Updating the SDK
 
-The Node SDK is vendored from
+The Node SDK is the released Node.js SDK 0.3.0, vendored from
 [Lithe-IDEA/lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs).
-`sdk.lock.json.sdkSource` records its true upstream base revision and the local
-structured logging changes; each SDK file has a SHA-256 and explicit source
-identity. The original `source` identifies historical test-support files;
-`coreSource` independently selects the integration host (see **Core
-integration source** below). Update the official SDK production inputs, review
-the diff, update every changed hash, and run `node scripts/verify-sdk.mjs`.
+`sdk.lock.json.sdk` pins its tag `sdk-node-v0.3.0`, commit, release asset URL and
+SHA-256; every vendored file records its path inside the archive and its own
+SHA-256, and carries no local changes. `testSupport` identifies the
+test-support files taken from the Lithe host repository; `coreSource`
+independently selects the integration host (see **Core integration source**
+below). To update the SDK, take a newer released Node.js SDK archive, replace
+the vendored files with its contents, update the `sdk` release fields and every
+file hash, and run `node scripts/verify-sdk.mjs --download`, which also
+downloads the release archive and requires the vendored files to match it.
 Unpinned or changed vendor files are rejected before testing and packaging.
 
 ## Core integration source
 
 CI and release verification explicitly check out `sdk.lock.json.coreSource.ref`
-(`preview`) from the verified host repository. **Merge the companion host
-structured logging change into preview before this plugin change**; preparation
-rejects a host missing the typed operation catalog rather than attempting an
-old-protocol fallback. It records the resolved commit and exact source SHA-256;
-this moving test ref is not presented as a pinned release artifact. SDK vendor
-hashes and the historical test-support source remain independently pinned.
+(`preview`) from the verified host repository. The host must offer
+`litheLogging: 1`; preparation rejects a host missing the typed operation
+catalog rather than attempting an old-protocol fallback. It records the resolved
+commit and exact source SHA-256; this moving test ref is not presented as a
+pinned release artifact. SDK vendor hashes and the test-support source remain
+independently pinned.
 
 Local validation can select a particular real host checkout and revision:
 

@@ -48,7 +48,7 @@ jobs:
         env:
           LITHE_SVN_INTEGRATION: '1'
         run: |
-          node scripts/verify-sdk.mjs
+          node scripts/verify-sdk.mjs --download
           if [ -f scripts/test.mjs ]; then
             node scripts/test.mjs
           else
@@ -73,15 +73,33 @@ jobs:
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
           macOS Subversion provider for a Lithe preview whose host declares API 3 vcsProviders 1 and serverProcess 1 and offers structured plugin diagnostics (litheLogging 1). Stable Lithe 0.6.7 does not offer litheLogging 1 and cannot start this version; keep using 0.1.0 there.
 
-          Changes in 0.1.1:
-          - Structured diagnostics: the bundled Node SDK records failed provider requests as ERROR on the plugins/io.github.lithe-idea.svn-support/host channel of Lithe's log window, with a stable failure code. Background status and base-content successes are not logged.
-          - A recovered annotate history failure records one WARN degraded entry and still returns the annotation without commit messages. svn output, history XML, source, repository addresses and credentials never enter the log.
+          Changes in 0.1.2:
+          - The bundled Node.js SDK is now the officially released SDK 0.3.0, pinned by tag (sdk-node-v0.3.0) and SHA-256 in sdk.lock.json instead of a local copy. The vendored files are the release's files without local edits. Provider behavior is unchanged.
+          - It still requires a Lithe preview build offering litheLogging 1; stable Lithe 0.6.7 users stay on 0.1.0.
 
           Requires Subversion 1.8+ and Node.js 20.3+, both user-provided. Not listed in Lithe Store yet; download the ZIP and install it from disk.
 
           Preview status: automated Core integration and svn scenario checks pass; native installation and full UI acceptance are pending. Windows is not supported. Published ZIP bytes must not be replaced.
           NOTES
           gh release create "$RELEASE_TAG" dist/*.zip dist/*.sha256 --verify-tag --prerelease --title "Subversion $RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.md"
+      - name: Require the release to be a prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Every release of this workflow needs a host offering litheLogging 1,
+          # so it must stay a prerelease: Lithe Store skips prereleases. A
+          # release has ended up as a normal one despite --prerelease before,
+          # so read the flag back, correct it, and fail if it still is not set.
+          is_prerelease() { gh release view "$RELEASE_TAG" --json isPrerelease --jq .isPrerelease; }
+          if [ "$(is_prerelease)" != "true" ]; then
+            echo "::warning::Release $RELEASE_TAG is not marked as a prerelease; correcting it."
+            gh release edit "$RELEASE_TAG" --prerelease
+            if [ "$(is_prerelease)" != "true" ]; then
+              echo "::error::Release $RELEASE_TAG is still not marked as a prerelease."
+              exit 1
+            fi
+          fi
+          echo "Release $RELEASE_TAG is a prerelease."
       - uses: actions/upload-artifact@v4
         if: always()
         with:

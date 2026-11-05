@@ -319,6 +319,21 @@ export interface FunctionContext extends RequestContext {
 export type FunctionHandler = (params: JsonObject, context: FunctionContext) => unknown | Promise<unknown>;
 export type BuildHandler = (params: BuildRequestParams, context: RequestContext) => JsonObject | Promise<JsonObject>;
 
+/** A file captured under the selected shortcut source. `path` is a relative label. */
+export interface KeymapSourceFile { id: string; path: string; byteCount: number }
+export interface KeymapImportSnapshot {
+  readonly providerID: string;
+  readonly snapshotID: string;
+  listInputs(): Promise<KeymapSourceFile[]>;
+  readChunk(fileID: string, offset: number, maximumBytes: number): Promise<Uint8Array>;
+}
+export interface KeymapImportBinding {
+  commandID: string;
+  keys: Array<{ key: string; modifiers: Array<'control' | 'alt' | 'shift' | 'meta'> }>;
+}
+export type KeymapImportHandler = (snapshot: KeymapImportSnapshot, context: RequestContext) =>
+  { bindings: KeymapImportBinding[] } | Promise<{ bindings: KeymapImportBinding[] }>;
+
 /** Params of `lithe/build/model` and `lithe/build/dependencies`. */
 export interface BuildRequestParams {
   /** Read-only host snapshot; missing producers remain unavailable. Requires protocol 6. */
@@ -473,7 +488,7 @@ export interface Negotiated {
 export interface BackendOptions {
   name?: string;
   version?: string;
-  /** Standard LSP server capabilities; `experimental.litheBuild`, `litheFunctions`, and `litheVcs` are reserved. */
+  /** Standard LSP server capabilities; the SDK negotiates its experimental protocols. */
   capabilities?: JsonObject;
 }
 
@@ -506,6 +521,8 @@ export interface Backend {
   };
   vcs(id: string, handlers: VcsHandlers, traits?: VcsTraits): Backend;
   function(id: string, handler: FunctionHandler): Backend;
+  /** Declares an independent shortcut import provider before initialize. */
+  keymapImportProvider(id: string, handler: KeymapImportHandler): Backend;
   registerFunction(id: string, handler: FunctionHandler): Promise<void>;
   unregisterFunction(id: string): Promise<void>;
   onRequest(method: string, handler: (params: unknown, context: RequestContext) => unknown): Backend;

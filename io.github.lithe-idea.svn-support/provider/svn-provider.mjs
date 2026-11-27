@@ -1,5 +1,5 @@
-// The Subversion provider: answers Lithe's VCS provider contract
-// (shared/contracts/vcs-provider-v1.md in Lithe) by running the user's `svn` client
+// The Subversion provider answers Lithe's VCS provider contract
+// (see this repository's README) by running the user's `svn` client
 // in the working copy root and reading its `--xml` output. Parsing lives in
 // svn-output.mjs; this file decides which commands an operation runs.
 //

@@ -38,7 +38,7 @@ jobs:
           LITHE_SVN_INTEGRATION: '1'
         run: |
           mkdir -p .artifacts
-          node scripts/verify-sdk.mjs
+          node scripts/verify-sdk.mjs --download
           node scripts/test.mjs
       - name: Assemble package
         run: node scripts/package.mjs

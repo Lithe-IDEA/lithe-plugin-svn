@@ -54,7 +54,7 @@ const VCS_TRAITS = Object.freeze(['push', 'staging']);
  * @param {string} [options.version] Reported as `serverInfo.version`.
  * @param {object} [options.capabilities] Standard LSP server capabilities, for a
  *   backend that is also a language server. `experimental.litheBuild`,
- *   `experimental.litheFunctions`, and `experimental.litheVcs` are negotiated by
+ *   `experimental.litheFunctions`, `experimental.litheVcs`, and `experimental.litheKeymapImport` are negotiated by
  *   the SDK and cannot be set here.
  */
 export function createBackend(options = {}) {
@@ -70,6 +70,8 @@ class Backend {
   #version;
   #capabilities;
   #functions = new Map();
+  #keymapProviders = new Map();
+  #selectedKeymapProviders = new Set();
   #buildHandlers = new Map();
   #buildVersion = null;
   #functionsVersion = null;
@@ -110,10 +112,10 @@ class Backend {
 
   constructor({ name = 'lithe-plugin-backend', version, capabilities = {} } = {}) {
     const experimental = capabilities.experimental ?? {};
-    if ('litheLogging' in experimental || 'litheBuild' in experimental || 'litheFunctions' in experimental || 'litheVcs' in experimental) {
+    if ('litheLogging' in experimental || 'litheBuild' in experimental || 'litheFunctions' in experimental || 'litheVcs' in experimental || 'litheKeymapImport' in experimental) {
       throw new PluginSdkError(
         'sdk.capabilities.reserved',
-        'litheBuild, litheFunctions, and litheVcs are negotiated by the SDK; declare handlers instead.',
+        'litheLogging, litheBuild, litheFunctions, litheVcs, and litheKeymapImport are negotiated by the SDK; declare handlers instead.',
       );
     }
     this.#name = String(name);
@@ -176,6 +178,16 @@ class Backend {
     }
     this.#checkNewFunction(id, handler);
     this.#functions.set(id, handler);
+    return this;
+  }
+
+  /** Declares an independent typed shortcut import provider. */
+  keymapImportProvider(id, handler) {
+    if (!this.#beforeAnswer() || !validKeymapProvider(id) || typeof handler !== 'function'
+        || this.#keymapProviders.has(id) || this.#keymapProviders.size >= 8) {
+      throw new PluginSdkError('sdk.keymap.invalidRegistration', 'Invalid or duplicate shortcut import provider.');
+    }
+    this.#keymapProviders.set(id, handler);
     return this;
   }
 
@@ -469,6 +481,10 @@ class Backend {
       this.#invokeFunction(id, params ?? {});
       return;
     }
+    if (method === 'lithe/keymap/import') {
+      this.#invokeKeymap(id, params);
+      return;
+    }
     const build = this.#buildHandlers.get(method);
     if (build && this.#buildVersion >= BUILD_METHOD_VERSIONS[method]) {
       this.#invokeBuild(id, method, params ?? {}, build);
@@ -583,6 +599,13 @@ class Backend {
       this.#diagnostics().degraded('initialize', 'functions_unavailable');
     }
     const experimental = { ...(this.#capabilities.experimental ?? {}), litheLogging: { version: 1 } };
+    if (offers(offered.litheKeymapImport, 1) && Array.isArray(offered.litheKeymapImport?.providers)
+        && offered.litheKeymapImport.providers.length <= 8) {
+      this.#selectedKeymapProviders = new Set(offered.litheKeymapImport.providers.filter((id) => this.#keymapProviders.has(id)));
+      if (this.#selectedKeymapProviders.size) {
+        experimental.litheKeymapImport = { version: 1, providers: [...this.#selectedKeymapProviders].sort() };
+      }
+    }
     if (this.#negotiated.build) experimental.litheBuild = { version: this.#buildVersion };
     if (this.#negotiated.vcs) {
       experimental.litheVcs = { version: VCS_VERSION, vcs: this.#vcs.id, capabilities: this.#vcs.capabilities };
@@ -647,6 +670,16 @@ class Backend {
         this.#write({ jsonrpc: '2.0', method: METHODS.buildProgress, params: report });
       },
     } : context), (result) => buildResult(method, result), () => { reporting = false; }, method, operationID);
+  }
+
+  #invokeKeymap(id, params) {
+    if (!isObject(params) || Object.keys(params).length !== 2 || !validKeymapProvider(params.providerID)
+        || !validSnapshotToken(params.snapshotID) || !this.#selectedKeymapProviders.has(params.providerID)) {
+      this.#respond(id, undefined, { code: ERROR_CODES.invalidParams, message: 'Invalid shortcut import request.' });
+      return;
+    }
+    const handler = this.#keymapProviders.get(params.providerID);
+    this.#run(id, null, (context) => handler(keymapSnapshot(params, context.host), context), functionResult, undefined, 'lithe/keymap/import');
   }
 
   #invokeFunction(id, { functionID, operationID, params, context: workspaceContext }) {
@@ -952,6 +985,38 @@ function buildResult(method, result) {
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validKeymapProvider(id) {
+  return typeof id === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(id);
+}
+
+function validSnapshotToken(id) {
+  return typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id);
+}
+
+function keymapSnapshot({ providerID, snapshotID }, host) {
+  const scope = { providerID, snapshotID };
+  const invalid = () => new PluginSdkError('sdk.keymap.invalidResponse', 'Invalid shortcut source response.');
+  return Object.freeze({
+    providerID, snapshotID,
+    async listInputs() {
+      const result = await host.request('lithe/host/keymapImport/listInputs', scope);
+      if (!Array.isArray(result?.files) || result.files.length > 128 || result.files.some((file) =>
+        !validSnapshotToken(file?.id) || typeof file.path !== 'string' || !file.path || Buffer.byteLength(file.path) > 4096
+        || !Number.isSafeInteger(file.byteCount) || file.byteCount < 0 || file.byteCount > 1048576)) throw invalid();
+      return result.files.map(({ id, path, byteCount }) => ({ id, path, byteCount }));
+    },
+    async readChunk(fileID, offset, maximumBytes) {
+      if (!validSnapshotToken(fileID) || !Number.isSafeInteger(offset) || offset < 0 || offset > 1048576
+          || !Number.isInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > 131072) throw invalid();
+      const result = await host.request('lithe/host/keymapImport/readChunk', { ...scope, fileID, offset, maximumBytes });
+      if (typeof result?.data !== 'string' || result.data.length > 174764) throw invalid();
+      const bytes = Buffer.from(result.data, 'base64');
+      if (bytes.length > maximumBytes || bytes.toString('base64') !== result.data) throw invalid();
+      return bytes;
+    },
+  });
 }
 
 /**

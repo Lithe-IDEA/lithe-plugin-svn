@@ -5,9 +5,9 @@ version control tool window show and commit the changes of Subversion working
 copies in an open project: status, diff against the base, history, annotate,
 check-in, rollback, update, conflict resolution, and moves through svn.
 
-**0.1.1 is a preview release.** Automated tests run the package against the
-selected latest Lithe Core and a real `svn` client in this repository's CI;
-native installation and full UI acceptance are still pending.
+**0.1.1 is a preview release.** This repository's integration scenario uses
+the packaged plugin, a compatible Lithe Core checkout, and a real `svn` client.
+Native installation and full UI acceptance are still pending.
 
 The plugin requires a Lithe preview whose host declares the `vcsProviders`
 capability (API 3 `vcsProviders: 1` and `serverProcess: 1`) and offers

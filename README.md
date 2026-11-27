@@ -33,13 +33,13 @@ tell stable hosts without `litheLogging: 1` apart, so install it from disk.
 
 ## How it works
 
-Lithe finds working copies from the manifest's `.svn` marker, including a
-working copy that encloses the opened folder, and watches `.svn/wc.db` for
-changes. For each working copy it starts `node provider/svn-provider.mjs
---stdio` and sends the operations of Lithe's VCS provider contract
-(`shared/contracts/vcs-provider-v1.md` in the Lithe repository). The provider
-runs the user's `svn` in the working copy root and reads its `--xml` output
-(`status`, `info`, `log`, `blame`).
+The plugin ID is `io.github.lithe-idea.svn-support`. The manifest declares a
+`.svn` marker for working copy detection and `.svn/wc.db` as a metadata path.
+When a compatible host needs a provider for a working copy, it starts
+`node provider/svn-provider.mjs --stdio` and sends operations defined by the
+[Core VCS provider contract](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/vcs-provider-v1.md).
+The provider runs the user's `svn` in the working copy root. Its output parser
+converts XML from `status`, `info`, `log`, and `blame` into contract replies.
 
 Every invocation uses `--non-interactive`, so only Subversion's own credential
 cache answers and the provider never sees a password. It runs with a UTF-8

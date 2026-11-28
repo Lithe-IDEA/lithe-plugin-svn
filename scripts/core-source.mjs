@@ -29,7 +29,7 @@ export async function identifyCore(source, ref, workingTree, expectedRepository)
   }
   const catalog = JSON.parse(await readFile(join(source, 'rust/logging/events/plugins.json'), 'utf8'));
   if (!catalog.events.some((event) => event.id === 'plugins.operation.finished')) {
-    throw new Error('Selected Core lacks litheLogging:1. Merge the companion Core logging change into the selected ref first.');
+    throw new Error('Selected Core lacks litheLogging:0. Merge the companion Core logging change into the selected ref first.');
   }
   return { source: resolve(source), ref, revision, workingTree, dirty, sourceSha256: hash.digest('hex'), repository: remote };
 }

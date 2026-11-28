@@ -183,6 +183,7 @@ test('the plugin works on a real working copy through Lithe Core', { skip: integ
       stateDirectory: join(scratch, 'state'),
       workspaceStateDirectory: join(scratch, 'workspace-state'),
       architecture: process.arch === 'arm64' ? 'arm64' : 'x86_64',
+      projectCodeAllowed: true,
     },
   });
   assert.equal(plan.status, 'ok', JSON.stringify(plan));
@@ -191,7 +192,7 @@ test('the plugin works on a real working copy through Lithe Core', { skip: integ
     providerId: `vcsProvider:${manifest.id}:${VCS}`,
     pluginId: manifest.id,
     executable: process.execPath,
-    arguments: plan.plan.arguments,
+    arguments: [...(plan.plan.launch.runtimeArguments ?? []), plan.plan.launch.entry, ...plan.plan.arguments],
     workspace,
     environment: NO_TIMESTAMP_SLEEP,
   });
@@ -200,8 +201,8 @@ test('the plugin works on a real working copy through Lithe Core', { skip: integ
   // Subversion commits straight to the server and has no staging area.
   const capabilities = negotiated.result.capabilities;
   assert.deepEqual(capabilities, {
-    annotate: 1, baseContent: 1, checkin: 1, cleanup: 1, conflicts: 1,
-    fileHistory: 1, fileOperations: 1, history: 1, rollback: 1, status: 1, update: 1,
+    annotate: 0, baseContent: 0, checkin: 0, cleanup: 0, conflicts: 0,
+    fileHistory: 0, fileOperations: 0, history: 0, rollback: 0, status: 0, update: 0,
   });
   const provider = new Provider(core, session, { capabilities, root: workspace, tool: svnPath });
 

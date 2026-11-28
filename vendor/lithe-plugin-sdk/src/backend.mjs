@@ -16,8 +16,8 @@ import { HostError, PluginError, PluginSdkError, toResponseError } from './error
 import { createHost, HostChannel } from './host.mjs';
 import { killAllProcesses, runProcess } from './process.mjs';
 import {
+  AGENT_NOTIFICATIONS,
   BUILD_VERSION,
-  BUILD_METHOD_VERSIONS,
   boundedText,
   ERROR_CODES,
   FUNCTIONS_VERSION,
@@ -26,22 +26,32 @@ import {
   isFunctionId,
   isReservedMethod,
   isVcsId,
+  KEYMAP_IMPORT_VERSION,
   LIMITS,
+  LOGGING_VERSION,
   METHODS,
   VCS_OPERATIONS,
   VCS_REQUIRED_OPERATIONS,
   VCS_VERSION,
 } from './protocol.mjs';
+import { checkViewEvent } from './view.mjs';
+
+/** The `version` every build result document carries. */
+const BUILD_DOCUMENT_VERSION = 0;
 
 /** Canonical result format of each typed build request. */
 const BUILD_FORMATS = Object.freeze({
   [METHODS.buildModel]: 'litheBuildModel',
   [METHODS.buildDependencies]: 'litheDependencies',
   [METHODS.buildDiscoverTests]: 'litheTestDiscovery',
+  [METHODS.buildRunEntrypoints]: 'litheRunEntrypoints',
 });
 
 /** Host notifications the SDK routes itself; see `onCommand`, `onContextsChanged`, and `host.subscribe`. */
 const ROUTED_NOTIFICATIONS = Object.freeze(Object.values(HOST_NOTIFICATIONS));
+
+/** Native agent session notifications, routed by `onAgentSessions`. */
+const AGENT_METHODS = Object.freeze(Object.values(AGENT_NOTIFICATIONS));
 
 /** VCS capabilities that describe the VCS rather than a request it answers. */
 const VCS_TRAITS = Object.freeze(['push', 'staging']);
@@ -82,6 +92,10 @@ class Backend {
   #commandHandlers = new Map();
   #contextsHandler = null;
   #hostNotificationHandlers = new Map();
+  /** `onAgentSessions`'s start function, or null. */
+  #agentStarter = null;
+  /** Live agent sessions by session ID: `{ handler, tail }`, where `tail` runs its notifications in order. */
+  #agentSessions = new Map();
   #channel;
   #initializeHooks = [];
   #shutdownHooks = [];
@@ -104,8 +118,7 @@ class Backend {
   build;
 
   /**
-   * Host services (`lithe/host/*`) of plugin-function protocols 2 and 3,
-   * usable once the session is ready. A handler's `context.host` is the
+   * Host services (`lithe/host/*`), usable once the session is ready. A handler's `context.host` is the
    * same object bound to its call.
    */
   host;
@@ -130,12 +143,13 @@ class Backend {
       execute: (handler) => this.#declareBuild(METHODS.buildExecute, handler),
       test: (handler) => this.#declareBuild(METHODS.buildTest, handler),
       discoverTests: (handler) => this.#declareBuild(METHODS.buildDiscoverTests, handler),
+      runEntrypoints: (handler) => this.#declareBuild(METHODS.buildRunEntrypoints, handler),
       /** Prepares a plan; the application itself belongs to the host. */
       prepareRun: (handler) => this.#declareBuild(METHODS.buildPrepareRun, handler),
       prepareDebug: (handler) => this.#declareBuild(METHODS.buildPrepareDebug, handler),
     });
     this.#channel = new HostChannel({
-      version: () => this.#functionsVersion ?? 0,
+      negotiated: () => this.#negotiated.functions,
       ready: () => this.#phase === 'ready',
       send: (method, params) => this.#send(method, params),
       notify: (method, params) => this.#write({ jsonrpc: '2.0', method, params }),
@@ -149,10 +163,10 @@ class Backend {
     return this.#negotiated;
   }
 
-  /** Selected build protocol version, or null when unavailable. */
+  /** The build protocol version in use (0), or null when unavailable. */
   get buildVersion() { return this.#buildVersion; }
 
-  /** Selected plugin-function protocol version (1-3), or null when unavailable. */
+  /** The plugin-function protocol version in use (0), or null when unavailable. */
   get functionsVersion() { return this.#functionsVersion; }
 
   /** The host's `initialize` params, or null before it arrives. */
@@ -179,6 +193,23 @@ class Backend {
     this.#checkNewFunction(id, handler);
     this.#functions.set(id, handler);
     return this;
+  }
+
+  /**
+   * Declares the view function a tool window or settings region names in
+   * `view.function`. Its params are the view event; it returns `{view}`,
+   * `{patches}`, or nothing, which answers `{}` (nothing changed). Params
+   * that are not a view event fail the call with `sdk.view.invalidEvent`
+   * before the handler runs.
+   *
+   * @param {string} id
+   * @param {(event: object, context: object) => unknown} handler
+   */
+  view(id, handler) {
+    const answer = typeof handler === 'function'
+      ? async (params, context) => (await handler(checkViewEvent(params), context)) ?? {}
+      : handler;
+    return this.function(id, answer);
   }
 
   /** Declares an independent typed shortcut import provider. */
@@ -252,7 +283,7 @@ class Backend {
 
   /**
    * Handles `lithe/host/commands/didRun` for one of the plugin's commands
-   * (protocol 3). The handler gets `{ commandID, workspaceContext }`, the
+   * The handler gets `{ commandID, workspaceContext }`, the
    * context of the window it ran in or null. It is an event: the host waits
    * for no result.
    */
@@ -266,7 +297,7 @@ class Backend {
   }
 
   /**
-   * Handles `lithe/host/workspace/didChangeContexts` (protocol 3) with
+   * Handles `lithe/host/workspace/didChangeContexts` with
    * `{ revision }`; call `host.workspace.listContexts()` for the contexts.
    */
   onContextsChanged(handler) {
@@ -276,8 +307,27 @@ class Backend {
   }
 
   /**
+   * Translates the native sessions of the plugin's agents (plan API-45). For
+   * each `lithe/host/agents/didStart`, `start({ session, agentID, cwd,
+   * resume }, handle)` makes the session's handler, which then gets the
+   * session's `didOutput`, `didPrompt`, `didCancel`, `didDecidePermission`
+   * and `didExit` one at a time, in the order Core sent them: each call
+   * waits for the promise of the one before. The handler has
+   * `output(lines)`, `prompt(turn, text)` and `decidePermission(turn,
+   * permission, option)`, and may have `cancel(turn)` and `exited(exitCode)`.
+   * `handle` has `id`, `host`, `write(lines)` and `report(events)`. When
+   * `start` fails, or a prompt fails, the SDK reports `turnEnded` with reason
+   * `failed` for the turn. A later registration replaces the earlier one.
+   */
+  onAgentSessions(start) {
+    if (typeof start !== 'function') throw new TypeError('An agent session start must be a function.');
+    this.#agentStarter = start;
+    return this;
+  }
+
+  /**
    * Handles a `lithe/host/*` notification a later host adds. Commands,
-   * context changes, and subscription events have their own APIs.
+   * context changes, subscription events, and agent sessions have their own APIs.
    */
   onHostNotification(method, handler) {
     if (typeof method !== 'string' || !method.startsWith('lithe/host/')) {
@@ -285,6 +335,9 @@ class Backend {
     }
     if (ROUTED_NOTIFICATIONS.includes(method)) {
       throw new PluginSdkError('sdk.method.reserved', `${method} is routed by the SDK; use onCommand, onContextsChanged, or host.subscribe.`);
+    }
+    if (AGENT_METHODS.includes(method)) {
+      throw new PluginSdkError('sdk.method.reserved', `${method} is routed by the SDK; use onAgentSessions.`);
     }
     if (typeof handler !== 'function') throw new TypeError('A handler must be a function.');
     this.#hostNotificationHandlers.set(method, handler);
@@ -415,6 +468,8 @@ class Backend {
           pending.reject(new PluginSdkError('sdk.session.closed', 'The session ended.'));
         }
         this.#outgoing.clear();
+        // Sessions still open get no further notifications.
+        this.#agentSessions.clear();
         input.off?.('data', onData);
         resolve(code);
         exit?.(code);
@@ -485,8 +540,8 @@ class Backend {
       this.#invokeKeymap(id, params);
       return;
     }
-    const build = this.#buildHandlers.get(method);
-    if (build && this.#buildVersion >= BUILD_METHOD_VERSIONS[method]) {
+    const build = this.#negotiated.build ? this.#buildHandlers.get(method) : undefined;
+    if (build) {
       this.#invokeBuild(id, method, params ?? {}, build);
       return;
     }
@@ -529,9 +584,13 @@ class Backend {
    * grant; one this SDK does not know is ignored, as the contract asks.
    */
   #hostNotification(method, params) {
-    if ((this.#functionsVersion ?? 0) < 3 || !isObject(params)) return;
+    if (!this.#negotiated.functions || !isObject(params)) return;
     if (method === HOST_NOTIFICATIONS.subscriptionNotify) {
       this.#channel.deliver(params);
+      return;
+    }
+    if (AGENT_METHODS.includes(method)) {
+      this.#agentNotification(method, params);
       return;
     }
     let handler;
@@ -540,7 +599,7 @@ class Backend {
       handler = this.#commandHandlers.get(params.commandID);
       event = { commandID: params.commandID, workspaceContext: isContextReference(params.context) ? params.context : null };
       if (!handler) {
-        this.#diagnostics().degraded('notification', 'command_unhandled');
+        this.#diagnostics().terminal('notification', { code: 'command_unhandled' }, 0);
         return;
       }
     } else if (method === HOST_NOTIFICATIONS.didChangeContexts) {
@@ -554,6 +613,64 @@ class Backend {
       .catch((error) => this.#diagnostics().terminal('notification', { code: failureKind(error) }, 0));
   }
 
+  /**
+   * Hands one `lithe/host/agents/did*` notification to its session. Core
+   * checked its shape; a notification of a session the SDK did not start is
+   * dropped.
+   */
+  #agentNotification(method, params) {
+    const session = typeof params.session === 'string' ? params.session : '';
+    const failed = (code) => this.#diagnostics().terminal('notification', { code }, 0);
+    if (method === AGENT_NOTIFICATIONS.didStart) {
+      const start = this.#agentStarter;
+      if (!start) {
+        failed('agent_unhandled');
+        return;
+      }
+      const handle = agentSessionHandle(session, this.host);
+      const entry = { handler: null, tail: null };
+      entry.tail = Promise.resolve()
+        .then(() => start({
+          session,
+          agentID: typeof params.agentID === 'string' ? params.agentID : '',
+          cwd: typeof params.cwd === 'string' ? params.cwd : '',
+          resume: typeof params.resume === 'string' ? params.resume : null,
+        }, handle))
+        .then((handler) => {
+          if (!isObject(handler)) throw new TypeError('An agent session start returned no handler.');
+          entry.handler = handler;
+        })
+        .catch((error) => failed(failureKind(error)));
+      this.#agentSessions.set(session, entry);
+      return;
+    }
+    const entry = this.#agentSessions.get(session);
+    if (method === AGENT_NOTIFICATIONS.didExit) this.#agentSessions.delete(session);
+    if (!entry) {
+      if (this.#agentStarter) failed('agent_session_unknown');
+      return;
+    }
+    const prompt = method === AGENT_NOTIFICATIONS.didPrompt;
+    const turn = Number.isSafeInteger(params.turn) ? params.turn : 0;
+    entry.tail = entry.tail.then(async () => {
+      const { handler } = entry;
+      let ok = handler !== null;
+      if (ok) {
+        try {
+          await deliverAgentNotification(handler, method, params, turn);
+        } catch (error) {
+          ok = false;
+          failed(failureKind(error));
+        }
+      }
+      if (!ok && prompt) {
+        // No handler runs the turn, so it ends here. The handler may have
+        // ended it already; Core then refuses the second end.
+        await this.host.agents.report(session, [{ kind: 'turnEnded', turn, reason: 'failed' }]).catch(() => {});
+      }
+    });
+  }
+
   async #initialize(id, params) {
     if (this.#phase !== 'listening') {
       this.#respond(id, undefined, { code: ERROR_CODES.invalidRequest, message: 'initialize was already received.' });
@@ -564,17 +681,20 @@ class Backend {
     const offered = params.capabilities?.experimental ?? {};
     this.#loggingReady = false;
     this.#earlyDiagnostics = [];
-    this.#logging = offered.litheLogging?.versions?.includes(1) === true;
+    const offers = (entry, version) => Array.isArray(entry?.versions) && entry.versions.includes(version);
+    this.#logging = offers(offered.litheLogging, LOGGING_VERSION);
     if (!this.#logging) {
       this.#phase = 'listening';
-      this.#respond(id, undefined, { code: ERROR_CODES.invalidRequest, message: 'The backend requires litheLogging version 1.' });
+      this.#respond(id, undefined, { code: ERROR_CODES.invalidRequest, message: `The backend requires litheLogging version ${LOGGING_VERSION}.` });
       return;
     }
-    const offers = (entry, version) => Array.isArray(entry?.versions) && entry.versions.includes(version);
-    const highest = (entry, latest) => Array.from({ length: latest }, (_, index) => latest - index)
-      .find((version) => offers(entry, version)) ?? null;
-    this.#buildVersion = this.#buildHandlers.size > 0 ? highest(offered.litheBuild, BUILD_VERSION) : null;
-    this.#functionsVersion = highest(offered.litheFunctions, FUNCTIONS_VERSION);
+    // The newest build protocol version the host offers; each one adds to the one before.
+    let buildVersion = null;
+    for (let version = BUILD_VERSION; version >= 0 && buildVersion === null; version -= 1) {
+      if (offers(offered.litheBuild, version)) buildVersion = version;
+    }
+    this.#buildVersion = this.#buildHandlers.size > 0 ? buildVersion : null;
+    this.#functionsVersion = offers(offered.litheFunctions, FUNCTIONS_VERSION) ? FUNCTIONS_VERSION : null;
     this.#negotiated = Object.freeze({
       functions: this.#functionsVersion !== null,
       build: this.#buildVersion !== null,
@@ -598,12 +718,12 @@ class Backend {
     if (!this.#negotiated.functions && this.#functions.size > 0) {
       this.#diagnostics().degraded('initialize', 'functions_unavailable');
     }
-    const experimental = { ...(this.#capabilities.experimental ?? {}), litheLogging: { version: 1 } };
-    if (offers(offered.litheKeymapImport, 1) && Array.isArray(offered.litheKeymapImport?.providers)
+    const experimental = { ...(this.#capabilities.experimental ?? {}), litheLogging: { version: LOGGING_VERSION } };
+    if (offers(offered.litheKeymapImport, KEYMAP_IMPORT_VERSION) && Array.isArray(offered.litheKeymapImport?.providers)
         && offered.litheKeymapImport.providers.length <= 8) {
       this.#selectedKeymapProviders = new Set(offered.litheKeymapImport.providers.filter((id) => this.#keymapProviders.has(id)));
       if (this.#selectedKeymapProviders.size) {
-        experimental.litheKeymapImport = { version: 1, providers: [...this.#selectedKeymapProviders].sort() };
+        experimental.litheKeymapImport = { version: KEYMAP_IMPORT_VERSION, providers: [...this.#selectedKeymapProviders].sort() };
       }
     }
     if (this.#negotiated.build) experimental.litheBuild = { version: this.#buildVersion };
@@ -646,10 +766,6 @@ class Backend {
   }
 
   #invokeBuild(id, method, params, handler) {
-    if (Object.hasOwn(params ?? {}, 'modelInputs') && this.#buildVersion < 6) {
-      this.#respond(id, undefined, { code: ERROR_CODES.invalidParams, message: 'Model inputs require build protocol 6.' });
-      return;
-    }
     const progressing = [METHODS.buildExecute, METHODS.buildTest, METHODS.buildPrepareRun, METHODS.buildPrepareDebug].includes(method);
     if (!params || typeof params !== 'object' || Array.isArray(params)
         || (progressing && typeof params.operationID !== 'string')) {
@@ -682,7 +798,7 @@ class Backend {
     this.#run(id, null, (context) => handler(keymapSnapshot(params, context.host), context), functionResult, undefined, 'lithe/keymap/import');
   }
 
-  #invokeFunction(id, { functionID, operationID, params, context: workspaceContext }) {
+  #invokeFunction(id, { functionID, operationID, params, context: workspaceContext, caller }) {
     const handler = this.#negotiated.functions ? this.#functions.get(functionID) : undefined;
     if (!handler) {
       this.#respond(id, undefined, { code: ERROR_CODES.invalidParams, message: `Function ${functionID} is not registered.` });
@@ -696,6 +812,10 @@ class Backend {
       if (Number.isFinite(percentage)) report.percentage = Math.min(100, Math.max(0, Math.round(percentage)));
       this.#write({ jsonrpc: '2.0', method: METHODS.functionProgress, params: report });
     };
+    // Calls this handler makes through the relay belong to this call. Core
+    // needs a string of 1-128 bytes; without one the calls carry no parent.
+    const parentOperationId = typeof operationID === 'string' && operationID.length > 0
+      && Buffer.byteLength(operationID) <= LIMITS.maxParentOperationIdBytes ? operationID : undefined;
     this.#run(
       id,
       functionID,
@@ -703,8 +823,11 @@ class Backend {
         ...context,
         functionID,
         operationID,
-        // The page's window, from protocol 3; null for a call without one.
+        // The page's window; null for a call without one.
         workspaceContext: isContextReference(workspaceContext) ? workspaceContext : null,
+        // The calling plugin, only for a relayed call; null otherwise.
+        caller: callerReference(caller),
+        host: createHost(this.#channel, context.signal, parentOperationId),
         progress,
       }),
       functionResult,
@@ -952,10 +1075,10 @@ function buildResult(method, result) {
     if (result.format !== undefined && result.format !== expected) {
       throw new PluginSdkError('sdk.build.invalidResult', `${method} returned format ${result.format}, not ${expected}.`);
     }
-    if (result.version !== undefined && result.version !== 1) {
-      throw new PluginSdkError('sdk.build.invalidResult', `${method} returned version ${result.version}, not 1.`);
+    if (result.version !== undefined && result.version !== BUILD_DOCUMENT_VERSION) {
+      throw new PluginSdkError('sdk.build.invalidResult', `${method} returned version ${result.version}, not ${BUILD_DOCUMENT_VERSION}.`);
     }
-    document = { ...result, format: expected, version: 1 };
+    document = { ...result, format: expected, version: BUILD_DOCUMENT_VERSION };
   }
   if ([METHODS.buildExecute, METHODS.buildTest].includes(method)
       && (!Number.isInteger(result.exitCode) || result.exitCode < -2147483648 || result.exitCode > 2147483647
@@ -983,8 +1106,45 @@ function buildResult(method, result) {
   return document;
 }
 
+/** The host methods of one agent session. */
+function agentSessionHandle(session, host) {
+  return Object.freeze({
+    id: session,
+    host,
+    /** `lithe/host/agents/write`: 1-256 lines for the CLI's standard input, without line breaks. */
+    write: (lines, options) => host.agents.write(session, lines, options),
+    /** `lithe/host/agents/report`: 1-256 session events, applied together. */
+    report: (events, options) => host.agents.report(session, events, options),
+  });
+}
+
+/** Calls the handler method one agent notification is for. */
+async function deliverAgentNotification(handler, method, params, turn) {
+  const text = (value) => (typeof value === 'string' ? value : '');
+  switch (method) {
+    case AGENT_NOTIFICATIONS.didOutput:
+      return handler.output(Array.isArray(params.lines) ? params.lines.map(text) : []);
+    case AGENT_NOTIFICATIONS.didPrompt:
+      return handler.prompt(turn, text(params.text));
+    case AGENT_NOTIFICATIONS.didCancel:
+      return handler.cancel?.(turn);
+    case AGENT_NOTIFICATIONS.didDecidePermission:
+      return handler.decidePermission(turn, text(params.permission), text(params.option));
+    default:
+      return handler.exited?.(Number.isSafeInteger(params.exitCode) ? params.exitCode : null);
+  }
+}
+
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** `{ pluginID }` for the exact top-level `caller` Core writes into a relayed call, else null. */
+function callerReference(value) {
+  if (!isObject(value) || Object.keys(value).length !== 1) return null;
+  return typeof value.pluginID === 'string' && value.pluginID.length > 0
+    ? Object.freeze({ pluginID: value.pluginID })
+    : null;
 }
 
 function validKeymapProvider(id) {

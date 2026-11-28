@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { repository, verifySdk } from './verify-sdk.mjs';
 import { runProcess } from '../vendor/lithe-plugin-sdk/src/index.mjs';
@@ -25,6 +25,7 @@ await mkdir(target, { recursive: true });
 await rm(join(target, 'prepared.json'), { force: true });
 const harness = join(repository, 'test/core-harness.rs');
 const binary = join(target, 'svn-plugin-harness');
+const harnessCrate = join(target, 'harness');
 const logs = [];
 async function run(command, args) {
   const result = await runProcess(command, args, { signal: AbortSignal.timeout(600000), maxOutputBytes: 4 * 1024 * 1024 });
@@ -32,8 +33,37 @@ async function run(command, args) {
   await writeFile(join(target, 'build.log'), logs.join('\n'));
   if (result.exitCode !== 0 || result.truncated) throw new Error(`Core bridge build failed; see ${join(target, 'build.log')}`);
 }
-await run('cargo', ['build', '--locked', '--manifest-path', join(source, 'rust/Cargo.toml'), '-p', 'lithe-core', '--lib', '--target-dir', buildTarget]);
-await run('rustc', ['--edition=2021', harness, '--extern', `lithe_core=${join(buildTarget, 'debug/liblithe_core.rlib')}`, '-L', `dependency=${join(buildTarget, 'debug/deps')}`, '-o', binary]);
+
+// Verify Core's Cargo.lock matches its workspace and populate the Cargo cache,
+// then build the harness via Cargo so Cargo passes all workspace --extern crates.
+await run('cargo', ['fetch', '--locked', '--manifest-path', join(source, 'rust/Cargo.toml')]);
+const coreToml = await readFile(join(source, 'rust/Cargo.toml'), 'utf8');
+const profileIndex = coreToml.indexOf('[profile.');
+const profiles = profileIndex >= 0 ? coreToml.slice(profileIndex) : '';
+await mkdir(harnessCrate, { recursive: true });
+await writeFile(join(harnessCrate, 'Cargo.toml'), [
+  '[package]',
+  'name = "svn-plugin-harness"',
+  'version = "0.1.0"',
+  'edition = "2021"',
+  '',
+  '[workspace]',
+  '',
+  '[[bin]]',
+  'name = "svn-plugin-harness"',
+  `path = ${JSON.stringify(harness)}`,
+  '',
+  '[dependencies]',
+  `lithe-core = { path = ${JSON.stringify(join(source, 'rust/crates/core'))} }`,
+  '',
+  profiles,
+].join('\n'));
+await copyFile(join(source, 'rust/Cargo.lock'), join(harnessCrate, 'Cargo.lock'));
+await run('cargo', ['build', '--manifest-path', join(harnessCrate, 'Cargo.toml'), '--target-dir', buildTarget]);
+const builtBinary = join(buildTarget, 'debug', process.platform === 'win32' ? 'svn-plugin-harness.exe' : 'svn-plugin-harness');
+await rm(binary, { force: true });
+await copyFile(builtBinary, binary);
+
 const after = await identifyCore(source, ref, workingTree, lock.coreSource.repository);
 if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Core source changed while building; prepare it again.');
 await writeFile(join(target, 'prepared.json'), JSON.stringify({ ...before, identity: before, harnessSha256: await digest(harness), binarySha256: await digest(binary) }, null, 2) + '\n');

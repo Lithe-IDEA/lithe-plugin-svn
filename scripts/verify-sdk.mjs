@@ -7,7 +7,7 @@ import { gunzipSync } from 'node:zlib';
 
 export const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-const sdkRepository = 'https://github.com/Lithe-IDEA/lithe-plugin-docs';
+const sdkRepository = 'https://github.com/Lithe-IDEA/Lithe-core-rust';
 const sdkPackage = '@lithe/plugin-sdk';
 const origins = new Set(['sdkArchive', 'sdkCommit', 'testSupport']);
 const entryKeys = ['origin', 'path', 'sha256', 'upstream'];
@@ -42,7 +42,7 @@ function validateLock(lock) {
   const coreSource = lock.coreSource;
   if (!coreSource || typeof coreSource.repository !== 'string' || !coreSource.repository.startsWith('https://github.com/')
     || typeof coreSource.ref !== 'string' || !coreSource.ref || coreSource.ref.startsWith('-')
-    || !Array.isArray(coreSource.requiredCapabilities) || !coreSource.requiredCapabilities.includes('litheLogging:1')) {
+    || !Array.isArray(coreSource.requiredCapabilities) || !coreSource.requiredCapabilities.includes('litheLogging:0')) {
     fail('Invalid SDK lock: coreSource must name a GitHub repository, ref, and requiredCapabilities.');
   }
   const paths = new Set();

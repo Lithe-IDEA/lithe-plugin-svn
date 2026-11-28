@@ -29,7 +29,7 @@ function tarGz(entries) {
 }
 
 const commit = '0123456789abcdef0123456789abcdef01234567';
-const repositoryURL = 'https://github.com/Lithe-IDEA/lithe-plugin-docs';
+const repositoryURL = 'https://github.com/Lithe-IDEA/Lithe-core-rust';
 const packageJSON = Buffer.from(JSON.stringify({ name: '@lithe/plugin-sdk', version: '9.9.9' }));
 
 /** A small plugin checkout whose lock pins a synthetic release archive. */
@@ -68,12 +68,12 @@ async function fixture(t, { archiveFiles = {}, vendored = {} } = {}) {
       entry('testSupport', '.agents/skills/write-stable-tests/scripts/test-timing-lib.mjs', 'vendor/lithe-testing/test-timing-lib.mjs'),
     ],
     testSupport: { repository: 'https://github.com/example/host', revision: commit },
-    coreSource: { repository: 'https://github.com/Lithe-IDEA/Lithe-core-rust', ref: 'main', requiredCapabilities: ['litheLogging:1'] },
+    coreSource: { repository: 'https://github.com/Lithe-IDEA/Lithe-core-rust', ref: 'main', requiredCapabilities: ['litheLogging:0'] },
   };
   await writeFile(join(root, 'sdk.lock.json'), JSON.stringify(lock));
   const downloads = new Map([
     [lock.sdk.url, archive],
-    [`https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/${commit}/sdk/node/test/harness.mjs`, harness],
+    [`https://raw.githubusercontent.com/Lithe-IDEA/Lithe-core-rust/${commit}/sdk/node/test/harness.mjs`, harness],
   ]);
   const download = async (url) => {
     if (!downloads.has(url)) throw new Error(`unexpected download ${url}`);
@@ -100,7 +100,7 @@ test('the checked-in lock pins the released Node.js SDK without local changes', 
   assert.equal(JSON.stringify(lock).includes('localChanges'), false);
   assert.equal(lock.coreSource.repository, 'https://github.com/Lithe-IDEA/Lithe-core-rust');
   assert.equal(lock.coreSource.ref, 'main');
-  assert.ok(lock.coreSource.requiredCapabilities.includes('litheLogging:1'));
+  assert.ok(lock.coreSource.requiredCapabilities.includes('litheLogging:0'));
   assert.equal((await verifySdk()).version, lock.sdk.version);
 });
 
@@ -159,7 +159,7 @@ test('download verification rejects an archive that lacks a pinned file or a dif
 
 test('download verification rejects a tagged file that changed upstream', { timeout: 10000 }, async (t) => {
   const { root, downloads, download } = await fixture(t);
-  downloads.set(`https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/${commit}/sdk/node/test/harness.mjs`, Buffer.from('changed'));
+  downloads.set(`https://raw.githubusercontent.com/Lithe-IDEA/Lithe-core-rust/${commit}/sdk/node/test/harness.mjs`, Buffer.from('changed'));
   await assert.rejects(verifySdkDownload(root, download), /does not match the released SDK: vendor\/lithe-plugin-sdk\/test\/harness\.mjs/);
 });
 

@@ -1,18 +1,16 @@
 // Wire constants and validation shared with Lithe's Rust Core
-// (rust/lithe-core/src/lsp/interface/plugin_function.rs and
-// rust/lithe-core/src/vcs/ in the Lithe repository). The SDK checks the
+// (rust/crates/plugin-rpc/src/ and
+// rust/crates/vcs/ in the Lithe repository). The SDK checks the
 // same rules locally so a plugin author sees a mistake when registering a
 // handler instead of as a refused session at runtime.
 
-/** Protocol versions this SDK can answer: the highest of each. */
-export const FUNCTIONS_VERSION = 3;
-export const BUILD_VERSION = 6;
-export const VCS_VERSION = 1;
-
-/** First plugin-function version with host services (credentials). */
-export const HOST_SERVICES_VERSION = 2;
-/** First plugin-function version with workspace contexts, discovery, and host notifications. */
-export const CONTEXT_VERSION = 3;
+/** The protocol versions this SDK speaks. */
+export const FUNCTIONS_VERSION = 0;
+/** The newest build protocol version (buildProviders 1 adds lithe/build/runEntrypoints); every earlier one is spoken too. */
+export const BUILD_VERSION = 1;
+export const VCS_VERSION = 0;
+export const LOGGING_VERSION = 0;
+export const KEYMAP_IMPORT_VERSION = 0;
 
 export const METHODS = Object.freeze({
   initialize: 'initialize',
@@ -29,6 +27,7 @@ export const METHODS = Object.freeze({
   buildExecute: 'lithe/build/execute',
   buildTest: 'lithe/build/test',
   buildDiscoverTests: 'lithe/build/discoverTests',
+  buildRunEntrypoints: 'lithe/build/runEntrypoints',
   buildPrepareRun: 'lithe/build/prepareRun',
   buildPrepareDebug: 'lithe/build/prepareDebug',
   buildProgress: 'lithe/build/progress',
@@ -36,12 +35,33 @@ export const METHODS = Object.freeze({
 });
 
 /**
- * Backend-to-host requests of plugin-function protocols 2 and 3. From
- * version 3 the host adds methods without a new version; `host.request`
- * sends any `lithe/host/*` method, and `getCapabilities` says which ones
- * this session may call.
+ * Backend-to-host requests of the plugin-function protocol. The host adds
+ * methods without a new version; `host.request` sends any `lithe/host/*`
+ * method, and `getCapabilities` says which ones this session may call.
  */
 export const HOST_METHODS = Object.freeze({
+  windowShowQuickPick: 'lithe/host/window/showQuickPick',
+  windowShowInputBox: 'lithe/host/window/showInputBox',
+  previewOpenMarkdown: 'lithe/host/preview/openMarkdown',
+  editorShowDiff: 'lithe/host/editor/showDiff',
+  viewsRefresh: 'lithe/host/views/refresh',
+  outputCreate: 'lithe/host/output/create',
+  outputAppend: 'lithe/host/output/append',
+  outputClear: 'lithe/host/output/clear',
+  outputShow: 'lithe/host/output/show',
+  outputDispose: 'lithe/host/output/dispose',
+  progressCreate: 'lithe/host/progress/create',
+  progressReport: 'lithe/host/progress/report',
+  progressEnd: 'lithe/host/progress/end',
+  statusBarSetItem: 'lithe/host/statusBar/setItem',
+  statusBarRemoveItem: 'lithe/host/statusBar/removeItem',
+  clipboardReadText: 'lithe/host/clipboard/readText',
+  clipboardWriteText: 'lithe/host/clipboard/writeText',
+  workspaceReveal: 'lithe/host/workspace/reveal',
+  workspaceSetDirectoryTypes: 'lithe/host/workspace/setDirectoryTypes',
+  workspaceSetDirectoryMarks: 'lithe/host/workspace/setDirectoryMarks',
+  networkRequest: 'lithe/host/network/request',
+
   credentialsGet: 'lithe/host/credentials/get',
   credentialsSet: 'lithe/host/credentials/set',
   credentialsDelete: 'lithe/host/credentials/delete',
@@ -50,14 +70,22 @@ export const HOST_METHODS = Object.freeze({
   workspaceListContexts: 'lithe/host/workspace/listContexts',
   workspaceGetContext: 'lithe/host/workspace/getContext',
   workspaceGetFolders: 'lithe/host/workspace/getFolders',
+  workspaceGetHostPaths: 'lithe/host/workspace/getHostPaths',
   workspaceReadDirectory: 'lithe/host/workspace/readDirectory',
   workspaceStat: 'lithe/host/workspace/stat',
   workspaceReadFile: 'lithe/host/workspace/readFile',
   workspaceWatch: 'lithe/host/workspace/watch',
   workspaceFindFiles: 'lithe/host/workspace/findFiles',
   workspaceFindText: 'lithe/host/workspace/findText',
+  workspaceCreate: 'lithe/host/workspace/create',
+  workspaceRename: 'lithe/host/workspace/rename',
+  workspaceCopy: 'lithe/host/workspace/copy',
+  workspaceTrash: 'lithe/host/workspace/trash',
   documentsList: 'lithe/host/documents/list',
   documentsGetSnapshot: 'lithe/host/documents/getSnapshot',
+  documentsSave: 'lithe/host/documents/save',
+  documentsSaveAs: 'lithe/host/documents/saveAs',
+  documentsClose: 'lithe/host/documents/close',
   editorRegisterActions: 'lithe/host/editor/registerActions',
   editorGetActive: 'lithe/host/editor/getActive',
   editorGetSelections: 'lithe/host/editor/getSelections',
@@ -77,19 +105,35 @@ export const HOST_METHODS = Object.freeze({
   terminalReopen: 'lithe/host/terminal/reopen',
   terminalDispose: 'lithe/host/terminal/dispose',
   terminalOnExit: 'lithe/host/terminal/onExit',
+  functionsProviders: 'lithe/host/functions/providers',
+  functionsInvoke: 'lithe/host/functions/invoke',
+  agentsWrite: 'lithe/host/agents/write',
+  agentsReport: 'lithe/host/agents/report',
+  agentsUsage: 'lithe/host/agents/usage',
 });
 
-/** Host-to-backend notifications of protocol 3. */
+/** Host-to-backend notifications. */
 export const HOST_NOTIFICATIONS = Object.freeze({
   didChangeContexts: 'lithe/host/workspace/didChangeContexts',
   subscriptionNotify: 'lithe/host/subscriptions/notify',
   commandDidRun: 'lithe/host/commands/didRun',
 });
 
+/** Native agent session notifications (plan API-45); see `onAgentSessions`. */
+export const AGENT_NOTIFICATIONS = Object.freeze({
+  didStart: 'lithe/host/agents/didStart',
+  didOutput: 'lithe/host/agents/didOutput',
+  didPrompt: 'lithe/host/agents/didPrompt',
+  didCancel: 'lithe/host/agents/didCancel',
+  didDecidePermission: 'lithe/host/agents/didDecidePermission',
+  didExit: 'lithe/host/agents/didExit',
+});
+
 /**
  * Host failure codes (`error.data.code`) and the JSON-RPC number Core sends
- * with each to a version 3 backend. A number never changes meaning; a later
- * host adds codes after `-32021`.
+ * with each to a backend. A number never changes meaning; a later host adds
+ * codes after the last one listed here. The `plugin.function.*` codes are the
+ * relay's own.
  */
 export const HOST_ERRORS = Object.freeze({
   'plugin.host.unavailable': -32601,
@@ -108,17 +152,26 @@ export const HOST_ERRORS = Object.freeze({
   'plugin.host.preconditionFailed': -32019,
   'plugin.host.busy': -32020,
   'plugin.host.rateLimited': -32021,
-});
-
-/** Minimum negotiated version of each typed build operation. */
-export const BUILD_METHOD_VERSIONS = Object.freeze({
-  [METHODS.buildModel]: 1,
-  [METHODS.buildDependencies]: 1,
-  [METHODS.buildExecute]: 2,
-  [METHODS.buildTest]: 3,
-  [METHODS.buildDiscoverTests]: 3,
-  [METHODS.buildPrepareRun]: 4,
-  [METHODS.buildPrepareDebug]: 5,
+  'plugin.host.languageServerUnavailable': -32022,
+  'plugin.host.languageServerError': -32023,
+  'plugin.host.methodNotDeclared': -32024,
+  'plugin.host.toolUnresolved': -32025,
+  'plugin.host.foreignContribution': -32026,
+  'plugin.function.notDeclared': -32027,
+  'plugin.function.notExported': -32028,
+  'plugin.function.providerDisabled': -32029,
+  'plugin.function.versionMismatch': -32030,
+  'plugin.function.callCycle': -32065,
+  'plugin.function.depthExceeded': -32066,
+  'plugin.function.tooManyCalls': -32067,
+  'plugin.function.payloadTooLarge': -32068,
+  'plugin.function.providerUnavailable': -32069,
+  'plugin.function.failed': -32070,
+  'plugin.function.invalidResult': -32071,
+  'plugin.host.remoteDisconnected': -32078,
+  'plugin.host.platformUnavailable': -32079,
+  'plugin.host.alreadyExists': -32080,
+  'plugin.host.diskChanged': -32081,
 });
 
 /**
@@ -183,6 +236,11 @@ export const LIMITS = Object.freeze({
   maxCredentialKeyBytes: 128,
   maxCredentialSecretBytes: 16 * 1024,
   maxPendingHostRequests: 16,
+  maxHostPathRoots: 256,
+  // The relay's bounds are Core's to enforce; the SDK only names them.
+  relayDefaultTimeoutMilliseconds: 60000,
+  relayMaxTimeoutMilliseconds: 600000,
+  maxParentOperationIdBytes: 128,
 });
 
 /** Dot-separated lowerCamelCase segments, for example `snapshot.refresh`. */
@@ -201,8 +259,8 @@ export function isVcsId(value) {
 }
 
 /**
- * The key alphabet of protocols 2 and 3: 1-128 ASCII letters, digits, `.`,
- * `_`, `:`, or `-`. Credential keys, context IDs, and subscription IDs use it.
+ * The key alphabet of host services: 1-128 ASCII letters, digits, `.`, `_`,
+ * `:`, or `-`. Credential keys, context IDs, and subscription IDs use it.
  */
 export function isCredentialKey(value) {
   return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value);

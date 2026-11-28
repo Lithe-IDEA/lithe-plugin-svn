@@ -1,5 +1,5 @@
 // Child processes a backend starts for one call. Lithe's host offers no
-// process capability in protocol version 1, so a backend runs its tools
+// process capability to a backend, so a backend runs its tools
 // itself; this helper makes sure that the call ending, cancelling it, or the
 // backend shutting down also ends the whole process tree it started. When the
 // backend itself is killed no JavaScript runs; the host then ends what is left

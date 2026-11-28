@@ -39,6 +39,12 @@ function validateLock(lock) {
   if (!testSupport || typeof testSupport.repository !== 'string' || !testSupport.repository.startsWith('https://github.com/') || !isCommit(testSupport.revision)) {
     fail('Invalid SDK lock: testSupport must pin an exact source revision.');
   }
+  const coreSource = lock.coreSource;
+  if (!coreSource || typeof coreSource.repository !== 'string' || !coreSource.repository.startsWith('https://github.com/')
+    || typeof coreSource.ref !== 'string' || !coreSource.ref || coreSource.ref.startsWith('-')
+    || !Array.isArray(coreSource.requiredCapabilities) || !coreSource.requiredCapabilities.includes('litheLogging:1')) {
+    fail('Invalid SDK lock: coreSource must name a GitHub repository, ref, and requiredCapabilities.');
+  }
   const paths = new Set();
   for (const entry of lock.files) {
     const keys = Object.keys(entry).sort();

@@ -5,7 +5,7 @@ version control tool window show and commit the changes of Subversion working
 copies in an open project: status, diff against the base, history, annotate,
 check-in, rollback, update, conflict resolution, and moves through svn.
 
-**0.1.2 is a preview release.** This repository's integration scenario uses
+**0.1.3 is a preview release.** This repository's integration scenario uses
 the packaged plugin, a compatible Lithe Core checkout, and a real `svn` client.
 Native installation and full UI acceptance are still pending.
 
@@ -23,13 +23,13 @@ Install Subversion 1.8 or newer (for example `brew install subversion`) and
 Node.js 20.3 or newer first. Node runs the provider; svn is not bundled and is
 the client you already use, with its own configuration and credential cache.
 
-Download `svn-support-0.1.2-darwin.zip` from
+Download `svn-support-0.1.3-darwin.zip` from
 [Releases](https://github.com/Lithe-IDEA/lithe-plugin-svn/releases), or build it
 with `node scripts/package.mjs`.
 In Lithe, choose Settings → Plugins → Install from Disk, select the ZIP,
 review the provider command, the svn client and its network use, and
 restart. Enable Subversion, then open a project that is, or contains, a
-Subversion working copy. 0.1.2 is not listed in
+Subversion working copy. 0.1.3 is not listed in
 [Lithe Store](https://github.com/Lithe-IDEA/Lithe-store) yet: the Store cannot
 tell stable hosts without `litheLogging: 1` apart, so install it from disk.
 
@@ -84,7 +84,7 @@ branches/switch, relocate, and merge tracking.
 
 ## Diagnostic logs
 
-Version 0.1.2 requires a host offering `litheLogging: 1`. The vendored official
+Version 0.1.3 requires a host offering `litheLogging: 1`. The vendored official
 Node SDK 0.3.0 sends typed `lithe/log` notifications to the host's v2 catalog and
 writer, in the current session's `plugins/io.github.lithe-idea.svn-support/host`
 channel. Provider process and protocol facts remain in `vcs/svn`. The SDK owns each request's
@@ -118,8 +118,8 @@ upgrade, re-record with `scripts/record-fixtures.sh` and review the diff.
 
 The scenario test runs the assembled package through Lithe Core's public JSON
 API, exactly as the host starts it, against a throwaway `file://` repository.
-It needs svn, Rust, and the selected host preview checked out at
-`.artifacts/lithe-core`, and the host must offer `litheLogging: 1`. See
+It needs svn, Rust, and the selected Core source checked out at
+`.artifacts/lithe-core`, and the Core source must offer `litheLogging: 1`. See
 **Core integration source** below for strict source verification, local
 unpublished working-tree validation and the full command.
 
@@ -150,17 +150,17 @@ Unpinned or changed vendor files are rejected before testing and packaging.
 ## Core integration source
 
 CI and release verification explicitly check out `sdk.lock.json.coreSource.ref`
-(`preview`) from the verified host repository. The host must offer
-`litheLogging: 1`; preparation rejects a host missing the typed operation
-catalog rather than attempting an old-protocol fallback. It records the resolved
-commit and exact source SHA-256; this moving test ref is not presented as a
-pinned release artifact. SDK vendor hashes and the test-support source remain
-independently pinned.
+(`main`) from the verified Core repository (`Lithe-IDEA/Lithe-core-rust`). The
+Core source must offer `litheLogging: 1`; preparation rejects a Core checkout
+missing the typed operation catalog rather than attempting an old-protocol
+fallback. It records the resolved commit and exact source SHA-256; this moving
+test ref is not presented as a pinned release artifact. SDK vendor hashes and
+the test-support source remain independently pinned.
 
-Local validation can select a particular real host checkout and revision:
+Local validation can select a particular real Core checkout and revision:
 
 ```sh
-node scripts/prepare-core.mjs --source /path/to/Lithe-IDEA --ref HEAD --working-tree --target-dir /path/to/Lithe-IDEA/rust/target
+node scripts/prepare-core.mjs --source /path/to/Lithe-core-rust --ref HEAD --working-tree --target-dir /path/to/Lithe-core-rust/rust/target
 LITHE_SVN_INTEGRATION=1 node scripts/test.mjs
 ```
 

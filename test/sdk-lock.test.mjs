@@ -68,6 +68,7 @@ async function fixture(t, { archiveFiles = {}, vendored = {} } = {}) {
       entry('testSupport', '.agents/skills/write-stable-tests/scripts/test-timing-lib.mjs', 'vendor/lithe-testing/test-timing-lib.mjs'),
     ],
     testSupport: { repository: 'https://github.com/example/host', revision: commit },
+    coreSource: { repository: 'https://github.com/Lithe-IDEA/Lithe-core-rust', ref: 'main', requiredCapabilities: ['litheLogging:1'] },
   };
   await writeFile(join(root, 'sdk.lock.json'), JSON.stringify(lock));
   const downloads = new Map([
@@ -97,6 +98,9 @@ test('the checked-in lock pins the released Node.js SDK without local changes', 
   assert.match(lock.sdk.sha256, /^[0-9a-f]{64}$/);
   for (const entry of lock.files) assert.deepEqual(Object.keys(entry).sort(), ['origin', 'path', 'sha256', 'upstream']);
   assert.equal(JSON.stringify(lock).includes('localChanges'), false);
+  assert.equal(lock.coreSource.repository, 'https://github.com/Lithe-IDEA/Lithe-core-rust');
+  assert.equal(lock.coreSource.ref, 'main');
+  assert.ok(lock.coreSource.requiredCapabilities.includes('litheLogging:1'));
   assert.equal((await verifySdk()).version, lock.sdk.version);
 });
 
@@ -114,6 +118,9 @@ test('offline verification rejects a lock that does not name the official releas
     [/Invalid or duplicate/, (lock) => { lock.files[1].origin = 'testSupport'; }],
     [/Invalid or duplicate/, (lock) => { lock.files[1].path = '../outside.mjs'; }],
     [/Invalid or duplicate/, (lock) => { lock.files[1].path = lock.files[0].path; }],
+    [/Invalid SDK lock: coreSource/, (lock) => { lock.coreSource.repository = 'https://example.invalid/core'; }],
+    [/Invalid SDK lock: coreSource/, (lock) => { lock.coreSource.ref = '--upload-pack=bad'; }],
+    [/Invalid SDK lock: coreSource/, (lock) => { lock.coreSource.requiredCapabilities = []; }],
   ];
   for (const [pattern, change] of rejected) {
     const bad = await fixture(t);

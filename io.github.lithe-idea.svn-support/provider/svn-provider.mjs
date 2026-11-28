@@ -442,7 +442,7 @@ async function cleanup(params, context) {
   return {};
 }
 
-createBackend({ name: 'svn-support', version: '0.1.3' })
+createBackend({ name: 'svn-support', version: '0.1.4' })
   .suppressSuccessDiagnostics('lithe/vcs/status')
   .suppressSuccessDiagnostics('lithe/vcs/baseContent')
   .vcs('svn', {

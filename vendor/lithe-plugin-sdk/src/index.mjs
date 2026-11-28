@@ -3,6 +3,7 @@
 
 export { createBackend } from './backend.mjs';
 export { HostError, PluginError, PluginSdkError } from './errors.mjs';
+export { HostPath } from './host.mjs';
 export { runProcess } from './process.mjs';
 export { openStateStore } from './state.mjs';
 export { HOST_ERRORS, HOST_METHODS, isFunctionId, isVcsId, LIMITS, VCS_ERRORS } from './protocol.mjs';

@@ -2,12 +2,12 @@
   "schemaVersion": 2,
   "sdk": {
     "package": "@lithe/plugin-sdk",
-    "version": "0.3.0",
-    "repository": "https://github.com/Lithe-IDEA/lithe-plugin-docs",
-    "tag": "sdk-node-v0.3.0",
-    "commit": "940394fcd8455186ee985e6c34a319032414607f",
-    "url": "https://github.com/Lithe-IDEA/lithe-plugin-docs/releases/download/sdk-node-v0.3.0/lithe-plugin-sdk-node-0.3.0.tgz",
-    "sha256": "d69cb09c4e87aeb0e01ea46e8b1dc80871de56de3729de451f6d9a64a18c4227"
+    "version": "0.5.0",
+    "repository": "https://github.com/Lithe-IDEA/Lithe-core-rust",
+    "tag": "sdk-node-v0.5.0",
+    "commit": "f7b93972a0819d8dec6d1ca94b122f7968fc6f72",
+    "url": "https://github.com/Lithe-IDEA/Lithe-core-rust/releases/download/sdk-node-v0.5.0/lithe-plugin-sdk-node-0.5.0.tgz",
+    "sha256": "397906233298f40fa8d0484149aa01ea843fe35d153ada642f400bdb41d04b12"
   },
   "files": [
     {
@@ -20,19 +20,19 @@
       "origin": "sdkArchive",
       "upstream": "package/src/backend.mjs",
       "path": "vendor/lithe-plugin-sdk/src/backend.mjs",
-      "sha256": "f4b32d7785ae75618633ff881a4b712fe83e5f28cf71196fe27b8b208bbea339"
+      "sha256": "7cf5bdc67b93054f64e74b364dd03e8cdb7bb98b0d4ae391e0c70e9c1c026440"
     },
     {
       "origin": "sdkArchive",
       "upstream": "package/src/diagnostics.mjs",
       "path": "vendor/lithe-plugin-sdk/src/diagnostics.mjs",
-      "sha256": "2735350b0e9658729311d18e9632cb38f93a01576ed0de61c66eefc8dd89e73f"
+      "sha256": "fa4eedd2ba5ef04ca502a8cf1a5aae23fc1ef43ae7b05e1c96ea3c1dd7ab8b6a"
     },
     {
       "origin": "sdkArchive",
       "upstream": "package/src/errors.mjs",
       "path": "vendor/lithe-plugin-sdk/src/errors.mjs",
-      "sha256": "e756aa0a88f1807ffdc985f3aed307f283c2a59902a287e22dd408dae5179bd2"
+      "sha256": "e046a2f83c00b1b7ca48c28ce42f6759a61ac070fef275c9dc29b54d68f62517"
     },
     {
       "origin": "sdkArchive",
@@ -44,25 +44,25 @@
       "origin": "sdkArchive",
       "upstream": "package/src/host.mjs",
       "path": "vendor/lithe-plugin-sdk/src/host.mjs",
-      "sha256": "5fbb3a03292fe72bb6b8c7169cecdf0263008526a1252e46e9f0afe98610e4ec"
+      "sha256": "ca94e637c86c78a23aab2ab801ca761fa7af555862088d93e5b5b867dc5a947f"
     },
     {
       "origin": "sdkArchive",
       "upstream": "package/src/index.mjs",
       "path": "vendor/lithe-plugin-sdk/src/index.mjs",
-      "sha256": "79042db2ac6e0ac896ff0a1643ee540217b7b84fab4d1b1b82ad4246263d16af"
+      "sha256": "60055f24f7c70ad6d603bf6a47d16fbf900abef75b3e9e58b7953441961118c2"
     },
     {
       "origin": "sdkArchive",
       "upstream": "package/src/process.mjs",
       "path": "vendor/lithe-plugin-sdk/src/process.mjs",
-      "sha256": "a72f78cbfbb8d98b2d44ebea7f869038a3e34ebe7ee000f63cdd36fb2aaece66"
+      "sha256": "651e9e244f0d221d4f6f6bba23991fa446c1ba3a5a7a3c2f7b9ddcbfd5569d1b"
     },
     {
       "origin": "sdkArchive",
       "upstream": "package/src/protocol.mjs",
       "path": "vendor/lithe-plugin-sdk/src/protocol.mjs",
-      "sha256": "31de386e386e8ec276657f151f62b2d0e7a4ae70700072eefeac624a6cde70a6"
+      "sha256": "4ae7e334f43f1ab0327082d7297b9ceea56e69dd80da946f2d8636e30f317945"
     },
     {
       "origin": "sdkArchive",
@@ -72,9 +72,15 @@
     },
     {
       "origin": "sdkArchive",
+      "upstream": "package/src/view.mjs",
+      "path": "vendor/lithe-plugin-sdk/src/view.mjs",
+      "sha256": "9ab74a2750c918c15475dd9748f7fa4f837211119ea1a91f418ab80de218ff2b"
+    },
+    {
+      "origin": "sdkArchive",
       "upstream": "package/src/index.d.ts",
       "path": "vendor/lithe-plugin-sdk/src/index.d.ts",
-      "sha256": "83671ee619dffaca042df3f2276be2a7b68aaff6fe3e104ce67b6ecb6ec27dea"
+      "sha256": "b61d58665bb6bb7a603416955ba0a3930df0f06726de745d8764b5ca4259d50d"
     },
     {
       "origin": "testSupport",
@@ -97,8 +103,8 @@
     "repository": "https://github.com/Lithe-IDEA/Lithe-core-rust",
     "ref": "main",
     "requiredCapabilities": [
-      "litheLogging:1"
+      "litheLogging:0"
     ],
-    "prerequisite": "The selected Core source must offer litheLogging 1 (the typed plugin operation catalog). prepare-core rejects a Core checkout without it and records the resolved revision and exact source digest."
+    "prerequisite": "The selected Core source must offer litheLogging 0 (the typed plugin operation catalog). prepare-core rejects a Core checkout without it and records the resolved revision and exact source digest."
   }
 }

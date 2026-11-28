@@ -37,8 +37,8 @@ const HOST_CODES = new Map(Object.entries(HOST_ERRORS).map(([code, rpcCode]) => 
 /**
  * The host refused or failed a request this backend sent. `code` is the
  * stable `error.data.code`, such as `plugin.host.contextExpired`; `rpcCode`
- * the JSON-RPC number; `details` the object a version 3 host may add, such
- * as `{ option }` or `{ retryAfterMilliseconds }`.
+ * the JSON-RPC number; `details` the object a host may add, such as
+ * `{ option }` or `{ retryAfterMilliseconds }`.
  */
 export class HostError extends PluginSdkError {
   constructor(code, message, { rpcCode, details, method } = {}) {
@@ -51,8 +51,8 @@ export class HostError extends PluginSdkError {
 
   /**
    * The failure for a JSON-RPC error answer. A host method without a known
-   * code is a host failure: from version 3 a number names one code, and an
-   * unknown number is `plugin.host.failed`.
+   * code is a host failure: a number names one code, and an unknown number
+   * is `plugin.host.failed`.
    */
   static fromResponse(method, error) {
     const data = error?.data;

@@ -1,4 +1,4 @@
-name: Release preview
+name: Release
 on:
   push:
     tags: ['v*']
@@ -56,7 +56,7 @@ jobs:
             node --test test/*.test.mjs
           fi
           node scripts/package.mjs --expect-tag "$RELEASE_TAG"
-      - name: Publish immutable preview assets
+      - name: Publish immutable release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -71,36 +71,17 @@ jobs:
             exit 0
           fi
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
-          macOS Subversion provider for a Lithe preview whose host declares API 3 vcsProviders 1 and serverProcess 1 and offers structured plugin diagnostics (litheLogging 1). Stable Lithe 0.6.7 does not offer litheLogging 1 and cannot start this version; keep using 0.1.0 there.
+          macOS Subversion provider for Lithe Desktop 0.8.20+ (declarative plugin contract v0: `schemaVersion: 0`, `pluginAPIVersion: 0`, `requires: { "vcsProviders": 0 }`) with structured plugin diagnostics (`litheLogging: 0`). Eligible for Lithe Store.
 
-          Changes in 0.1.3:
-          - Updated the Core integration verification source in sdk.lock.json to Lithe-IDEA/Lithe-core-rust (main), replacing the retired 1lck/Lithe-IDEA preview branch, and aligned Core logging catalog verification with rust/logging/events/plugins.json.
-          - The bundled Node.js SDK remains the officially released SDK 0.3.0 (sdk-node-v0.3.0), pinned by tag and SHA-256 in sdk.lock.json without local edits. Provider behavior is unchanged.
-          - It still requires a Lithe preview build offering litheLogging 1; stable Lithe 0.6.7 users stay on 0.1.0.
+          Changes in 0.1.4:
+          - Migrated `plugin.json` to the v0 plugin contract (`schemaVersion: 0`, `pluginAPIVersion: 0`, `requires: { "vcsProviders": 0 }`, `requiresTools: ["node"]`).
+          - Updated the vendored official Node.js SDK to 0.5.0 (`sdk-node-v0.5.0` from `Lithe-IDEA/Lithe-core-rust`), speaking `litheLogging: 0` and `litheVcs: 0` cleanly with Lithe Desktop 0.8.20+ and Rust Core.
+          - Fixed `scripts/prepare-core.mjs` to build the Core test harness through Cargo instead of manual `rustc` crate linking, and updated the Core integration test for workspace trust and tool launch plans.
+          - Switched the release workflow to publish stable GitHub Releases eligible for Lithe Store.
 
-          Requires Subversion 1.8+ and Node.js 20.3+, both user-provided. Not listed in Lithe Store yet; download the ZIP and install it from disk.
-
-          Preview status: automated Core integration and svn scenario checks pass; native installation and full UI acceptance are pending. Windows is not supported. Published ZIP bytes must not be replaced.
+          Requires Subversion 1.8+ and Node.js 20.3+, both user-provided. Windows is not supported. Published ZIP bytes must not be replaced.
           NOTES
-          gh release create "$RELEASE_TAG" dist/*.zip dist/*.sha256 --verify-tag --prerelease --title "Subversion $RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.md"
-      - name: Require the release to be a prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Every release of this workflow needs a host offering litheLogging 1,
-          # so it must stay a prerelease: Lithe Store skips prereleases. A
-          # release has ended up as a normal one despite --prerelease before,
-          # so read the flag back, correct it, and fail if it still is not set.
-          is_prerelease() { gh release view "$RELEASE_TAG" --json isPrerelease --jq .isPrerelease; }
-          if [ "$(is_prerelease)" != "true" ]; then
-            echo "::warning::Release $RELEASE_TAG is not marked as a prerelease; correcting it."
-            gh release edit "$RELEASE_TAG" --prerelease
-            if [ "$(is_prerelease)" != "true" ]; then
-              echo "::error::Release $RELEASE_TAG is still not marked as a prerelease."
-              exit 1
-            fi
-          fi
-          echo "Release $RELEASE_TAG is a prerelease."
+          gh release create "$RELEASE_TAG" dist/*.zip dist/*.sha256 --verify-tag --title "Subversion $RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.md"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

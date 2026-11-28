@@ -3,7 +3,7 @@ import { PluginSdkError } from './errors.mjs';
 
 export const KNOWN_OPERATIONS = new Set([
   'initialize', 'shutdown', 'notification', 'function-call', 'result-encoding',
-  ...['model', 'dependencies', 'execute', 'test', 'discoverTests', 'prepareRun', 'prepareDebug'].map((name) => `lithe/build/${name}`),
+  ...['model', 'dependencies', 'execute', 'test', 'discoverTests', 'prepareRun', 'prepareDebug', 'runEntrypoints'].map((name) => `lithe/build/${name}`),
   ...['status', 'baseContent', 'history', 'fileHistory', 'annotate', 'checkin', 'rollback', 'update', 'fileOperation', 'resolve', 'cleanup'].map((name) => `lithe/vcs/${name}`),
   'lithe/keymap/import',
 ]);

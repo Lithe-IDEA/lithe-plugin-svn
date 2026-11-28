@@ -94,11 +94,11 @@
     "revision": "54598ae6e0b9fd71a07b77e1fea6917ba8897a6f"
   },
   "coreSource": {
-    "repository": "https://github.com/1lck/Lithe-IDEA",
-    "ref": "preview",
+    "repository": "https://github.com/Lithe-IDEA/Lithe-core-rust",
+    "ref": "main",
     "requiredCapabilities": [
       "litheLogging:1"
     ],
-    "prerequisite": "The selected host preview must offer litheLogging 1 (the typed plugin operation catalog). prepare-core rejects a host without it and records the resolved revision and exact source digest."
+    "prerequisite": "The selected Core source must offer litheLogging 1 (the typed plugin operation catalog). prepare-core rejects a Core checkout without it and records the resolved revision and exact source digest."
   }
 }
